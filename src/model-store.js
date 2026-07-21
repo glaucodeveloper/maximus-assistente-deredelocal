@@ -1,13 +1,5 @@
-/*
- * O modelo fica no OPFS, que pertence à origem do site.
- * Em GitHub Pages, trocar somente o caminho/repositório não muda a origem
- * https://<usuario>.github.io e, portanto, não apaga o arquivo.
- *
- * Não altere STABLE_FILENAME em atualizações comuns. Modelos realmente
- * incompatíveis devem receber outro id, mantendo os nomes antigos na lista
- * LEGACY_FILENAMES para permitir migração/reutilização explícita.
- */
 const STABLE_FILENAME = 'maximus-gemma-4-E2B-it-web.litertlm';
+const METADATA_FILENAME = `${STABLE_FILENAME}.json`;
 
 const LEGACY_FILENAMES = Object.freeze([
   'gemma-4-E2B-it-web-r4.litertlm',
@@ -25,12 +17,12 @@ const CANDIDATE_FILENAMES = Object.freeze([
 export const MODEL = Object.freeze({
   id: 'gemma-4-e2b-web',
   filename: STABLE_FILENAME,
+  metadataFilename: METADATA_FILENAME,
   legacyFilenames: LEGACY_FILENAMES,
   displayName: 'Gemma 4 E2B IT Web',
   url: 'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.litertlm',
   approximateBytes: 2_008_000_000,
   minimumBytes: 1_900_000_000,
-  storageVersion: 5,
 });
 
 async function rootDirectory() {
@@ -41,79 +33,143 @@ async function rootDirectory() {
   return navigator.storage.getDirectory();
 }
 
-async function findStoredModel({removeIncomplete = false} = {}) {
+async function readMetadata(root) {
+  try {
+    const handle = await root.getFileHandle(METADATA_FILENAME);
+    const file = await handle.getFile();
+    return JSON.parse(await file.text());
+  } catch (error) {
+    if (error?.name === 'NotFoundError' || error instanceof SyntaxError) return null;
+    throw error;
+  }
+}
+
+async function writeMetadata(root, metadata) {
+  const handle = await root.getFileHandle(METADATA_FILENAME, {create: true});
+  const writable = await handle.createWritable({keepExistingData: false});
+
+  try {
+    await writable.write(`${JSON.stringify(metadata, null, 2)}\n`);
+    await writable.close();
+  } catch (error) {
+    await writable.abort().catch(() => {});
+    throw error;
+  }
+}
+
+async function inspectCandidate(root, filename, metadata) {
+  try {
+    const handle = await root.getFileHandle(filename);
+    const file = await handle.getFile();
+
+    const expectedBytes =
+      filename === STABLE_FILENAME &&
+      metadata?.complete === true &&
+      Number.isFinite(Number(metadata.expectedBytes))
+        ? Number(metadata.expectedBytes)
+        : null;
+
+    const complete = expectedBytes
+      ? file.size === expectedBytes
+      : file.size >= MODEL.minimumBytes;
+
+    return {
+      filename,
+      file,
+      complete,
+      expectedBytes,
+      legacy: filename !== STABLE_FILENAME,
+    };
+  } catch (error) {
+    if (error?.name === 'NotFoundError') return null;
+    throw error;
+  }
+}
+
+async function findStoredModel() {
   const root = await rootDirectory();
+  const metadata = await readMetadata(root);
 
   for (const filename of CANDIDATE_FILENAMES) {
-    try {
-      const handle = await root.getFileHandle(filename);
-      const file = await handle.getFile();
+    const candidate = await inspectCandidate(root, filename, metadata);
+    if (!candidate) continue;
 
-      if (file.size >= MODEL.minimumBytes) {
-        return {
-          file,
-          filename,
-          isLegacy: filename !== STABLE_FILENAME,
-        };
-      }
-
-      if (removeIncomplete) {
-        await root.removeEntry(filename).catch(() => {});
-      }
-    } catch (error) {
-      if (error?.name !== 'NotFoundError') throw error;
-    }
+    return {
+      ...candidate,
+      root,
+      metadata,
+    };
   }
 
   return null;
 }
 
+export async function getStoredModelInfo() {
+  const stored = await findStoredModel();
+
+  if (!stored) {
+    return {
+      exists: false,
+      complete: false,
+      filename: null,
+      size: 0,
+    };
+  }
+
+  return {
+    exists: true,
+    complete: stored.complete,
+    filename: stored.filename,
+    size: stored.file.size,
+    expectedBytes: stored.expectedBytes,
+    legacy: stored.legacy,
+  };
+}
+
 export async function getModelFile() {
-  const stored = await findStoredModel({removeIncomplete: true});
+  const stored = await findStoredModel();
 
   if (!stored) {
     throw new Error('A inteligência local ainda não foi preparada neste dispositivo.');
   }
 
-  // Não copia nem renomeia arquivos legados de 2 GB. O runtime pode abrir
-  // diretamente o File encontrado no OPFS.
+  if (!stored.complete) {
+    throw new Error('O arquivo local do modelo está incompleto e precisa ser baixado novamente.');
+  }
+
   return stored.file;
 }
 
-export async function getStoredModelInfo() {
+export async function hasModel() {
   const stored = await findStoredModel();
-  if (!stored) return null;
-
-  return {
-    filename: stored.filename,
-    size: stored.file.size,
-    isLegacy: stored.isLegacy,
-  };
+  return Boolean(stored?.complete);
 }
 
-export async function hasModel() {
-  return Boolean(await findStoredModel({removeIncomplete: true}));
+export async function needsModelDownload() {
+  const stored = await findStoredModel();
+  return !stored || !stored.complete;
 }
 
 /*
- * Só deve ser chamado por uma ação explícita do usuário.
- * Atualização do PWA, falha de sessão ou saída inválida não devem apagar 2 GB.
+ * Remoção somente por ação explícita do usuário.
+ * Nunca chame esta função por erro de WebGPU, <pad>, sessão ou inferência.
  */
 export async function deleteModel() {
   const root = await rootDirectory();
 
-  await Promise.all(
-    CANDIDATE_FILENAMES.map(filename =>
-      root.removeEntry(filename).catch(error => {
-        if (error?.name !== 'NotFoundError') throw error;
-      }),
-    ),
-  );
+  await Promise.all([
+    ...CANDIDATE_FILENAMES,
+    METADATA_FILENAME,
+    `${STABLE_FILENAME}.download`,
+  ].map(filename =>
+    root.removeEntry(filename).catch(error => {
+      if (error?.name !== 'NotFoundError') throw error;
+    }),
+  ));
 }
 
 async function ensureQuota(requiredBytes) {
   const estimate = await navigator.storage?.estimate?.();
-
   if (!estimate?.quota) return;
 
   const available = estimate.quota - (estimate.usage ?? 0);
@@ -133,20 +189,18 @@ export async function downloadModel({
 } = {}) {
   await navigator.storage?.persist?.();
 
-  if (!force) {
-    const stored = await findStoredModel({removeIncomplete: true});
+  const existing = await findStoredModel();
 
-    if (stored) {
-      onProgress({
-        received: stored.file.size,
-        total: stored.file.size,
-        ratio: 1,
-        reused: true,
-        filename: stored.filename,
-      });
+  if (existing?.complete && !force) {
+    onProgress({
+      received: existing.file.size,
+      total: existing.file.size,
+      ratio: 1,
+      reused: true,
+      filename: existing.filename,
+    });
 
-      return stored.file;
-    }
+    return existing.file;
   }
 
   const response = await fetch(MODEL.url, {
@@ -159,14 +213,17 @@ export async function downloadModel({
     throw new Error(`Falha no download do modelo: HTTP ${response.status}.`);
   }
 
-  const total = Number(response.headers.get('content-length')) || MODEL.approximateBytes;
-  await ensureQuota(total);
+  const expectedBytes =
+    Number(response.headers.get('content-length')) || MODEL.approximateBytes;
+
+  await ensureQuota(expectedBytes);
 
   const root = await rootDirectory();
   const temporaryFilename = `${STABLE_FILENAME}.download`;
   const temporaryHandle = await root.getFileHandle(temporaryFilename, {create: true});
   const writable = await temporaryHandle.createWritable({keepExistingData: false});
   const reader = response.body.getReader();
+
   let received = 0;
 
   try {
@@ -180,10 +237,11 @@ export async function downloadModel({
 
       await writable.write(value);
       received += value.byteLength;
+
       onProgress({
         received,
-        total,
-        ratio: Math.min(1, received / total),
+        total: expectedBytes,
+        ratio: Math.min(1, received / expectedBytes),
         reused: false,
       });
     }
@@ -197,15 +255,16 @@ export async function downloadModel({
 
   const downloaded = await temporaryHandle.getFile();
 
-  if (downloaded.size < MODEL.minimumBytes) {
+  if (
+    downloaded.size < MODEL.minimumBytes ||
+    (expectedBytes > 0 && downloaded.size !== expectedBytes)
+  ) {
     await root.removeEntry(temporaryFilename).catch(() => {});
-    throw new Error('O download terminou com um arquivo menor que o esperado.');
+    throw new Error(
+      `O download ficou incompleto: ${formatBytes(downloaded.size)} de ${formatBytes(expectedBytes)}.`,
+    );
   }
 
-  /*
-   * Publica somente depois de validar o tamanho. A cópia local ocorre apenas
-   * em um download novo; arquivos legados válidos são usados no lugar.
-   */
   const finalHandle = await root.getFileHandle(STABLE_FILENAME, {create: true});
   const finalWritable = await finalHandle.createWritable({keepExistingData: false});
 
@@ -219,14 +278,19 @@ export async function downloadModel({
     await root.removeEntry(temporaryFilename).catch(() => {});
   }
 
-  const file = await finalHandle.getFile();
+  const finalFile = await finalHandle.getFile();
 
-  if (file.size < MODEL.minimumBytes) {
-    await root.removeEntry(STABLE_FILENAME).catch(() => {});
-    throw new Error('O arquivo local do modelo ficou incompleto.');
-  }
+  await writeMetadata(root, {
+    version: 1,
+    modelId: MODEL.id,
+    filename: STABLE_FILENAME,
+    expectedBytes: finalFile.size,
+    complete: true,
+    sourceUrl: MODEL.url,
+    completedAt: new Date().toISOString(),
+  });
 
-  return file;
+  return finalFile;
 }
 
 export function formatBytes(bytes) {
