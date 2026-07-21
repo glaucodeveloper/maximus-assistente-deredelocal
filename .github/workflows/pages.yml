@@ -2,7 +2,8 @@ name: Deploy PWA to GitHub Pages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
   workflow_dispatch:
 
 permissions:
@@ -11,32 +12,49 @@ permissions:
   id-token: write
 
 concurrency:
-  group: pages
+  group: github-pages
   cancel-in-progress: true
 
 jobs:
   build:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v6
-      - uses: actions/setup-node@v6
+      - name: Baixar repositório
+        uses: actions/checkout@v6
+
+      - name: Configurar Node.js
+        uses: actions/setup-node@v6
         with:
           node-version: 24
           cache: npm
-      - run: npm ci
-      - run: npm run validate
-      - run: npm run build
-      - uses: actions/upload-pages-artifact@v4
+
+      - name: Configurar GitHub Pages
+        uses: actions/configure-pages@v5
+
+      - name: Instalar dependências
+        run: npm ci --registry=https://registry.npmjs.org
+
+      - name: Validar
+        run: npm run validate
+
+      - name: Compilar com Vite
+        run: npm run build
+
+      - name: Enviar artefato
+        uses: actions/upload-pages-artifact@v4
         with:
-          path: dist
+          path: ./dist
 
   deploy:
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+
     runs-on: ubuntu-latest
     needs: build
+
     steps:
-      - name: Deploy
+      - name: Publicar
         id: deployment
         uses: actions/deploy-pages@v4
