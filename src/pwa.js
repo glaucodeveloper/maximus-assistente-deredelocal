@@ -3,7 +3,11 @@ export async function registerServiceWorker() {
     throw new Error('Service Worker não é suportado neste navegador.');
   }
 
-  const registration = await navigator.serviceWorker.register('./sw.js', {scope: './'});
+  const registration = await navigator.serviceWorker.register('./sw.js', {
+    scope: './',
+    updateViaCache: 'none',
+  });
+  await registration.update();
   await navigator.serviceWorker.ready;
 
   if (!navigator.serviceWorker.controller) {
@@ -12,6 +16,12 @@ export async function registerServiceWorker() {
       setTimeout(resolve, 3000);
     });
   }
+
+
+  navigator.serviceWorker.addEventListener('message', event => {
+    if (event.data?.type !== 'MAXIMUS_VERSION_READY') return;
+    sessionStorage.setItem('maximus-build-ready', event.data.version || 'new');
+  });
 
   return registration;
 }
