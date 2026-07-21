@@ -111,23 +111,33 @@ async function collectSafe(stream, {cancel = () => {}, maxChars = 64_000} = {}) 
 }
 
 export async function validateModelEngine(engine) {
-  const conversation = await engine.createConversation({
-    preface: {
-      messages: [{
-        role: 'system',
-        content: 'Você está realizando um teste técnico de integridade. Responda somente com MAXIMUS_OK.',
-      }],
-    },
-  });
+  // Teste isolado: sem prompt de sistema, ferramentas ou histórico.
+  // Isso evita confundir falha do runtime com falha do RLM.
+  const conversation = await engine.createConversation();
 
   try {
-    const response = await collectSafe(
-      conversation.sendMessageStreaming('Responda somente: MAXIMUS_OK'),
-      {cancel: () => conversation.cancel?.(), maxChars: 512},
+    const response = await conversation.sendMessage(
+      'Responda somente com a palavra OK.',
     );
-    if (!/MAXIMUS[\s_-]*OK/i.test(response)) {
-      throw new UnsafeModelOutputError('O modelo local não passou no teste de integridade.');
+
+    const text = (response?.content ?? [])
+      .filter(item => item?.type === 'text')
+      .map(item => item.text ?? '')
+      .join('')
+      .trim();
+
+    if (SPECIAL_TOKEN_PATTERN.test(text) || hasRepetitionLoop(text)) {
+      throw new UnsafeModelOutputError(
+        'O runtime emitiu tokens internos durante o teste mínimo.',
+      );
     }
+
+    if (!/^OK[.!]?$/i.test(text)) {
+      throw new UnsafeModelOutputError(
+        `O modelo abriu, mas não produziu uma resposta válida no teste mínimo: ${text.slice(0, 120) || '[vazio]'}`,
+      );
+    }
+
     return true;
   } finally {
     conversation.cancel?.();

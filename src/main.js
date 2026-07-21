@@ -267,9 +267,10 @@ function* AppComponent({id}) {
         await ensureLiteRtRuntime();
         const modelFile = await getModelFile();
         await this.disposeModel();
+        // Fluxo mínimo oficial do LiteRT-LM Web.
+        // O File vem do OPFS e não é copiado, removido ou baixado novamente.
         this.engine = await Engine.create({
           model: modelFile,
-          mainExecutorSettings: {maxNumTokens: Math.min(2048, this.config.model.maxNumTokens)},
         });
         await validateModelEngine(this.engine);
         await this.createConversation();
