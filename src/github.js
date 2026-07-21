@@ -60,9 +60,21 @@ export async function loadAppConfig() {
       branch: normalizeSegment(config?.repository?.branch || 'main', 'Branch'),
       requirePrivate: config?.repository?.requirePrivate !== false,
     },
+    brand: {
+      company: String(config?.brand?.company || 'Maximus Empreendimentos').slice(0, 100),
+      product: String(config?.brand?.product || 'Maximus Engenharia Inteligente').slice(0, 100),
+      shortName: String(config?.brand?.shortName || 'Maximus Intelligence').slice(0, 60),
+      tagline: String(config?.brand?.tagline || 'Conhecimento técnico transformado em decisão.').slice(0, 180),
+    },
     paths: {
       baseOkf: normalizePath(config?.paths?.baseOkf || 'okf'),
       users: normalizePath(config?.paths?.users || 'data/users'),
+    },
+    confirmation: {
+      enabled: config?.confirmation?.enabled !== false,
+      requestsPath: normalizePath(config?.confirmation?.requestsPath || 'data/verification-requests'),
+      expiresHours: Math.min(168, Math.max(1, Number(config?.confirmation?.expiresHours) || 24)),
+      webUrl: String(config?.confirmation?.webUrl || location.href).slice(0, 500),
     },
     limits: {
       maxUploadBytes: Math.min(20 * 1024 * 1024, Math.max(64 * 1024, Number(config?.limits?.maxUploadBytes) || 8 * 1024 * 1024)),
@@ -71,7 +83,7 @@ export async function loadAppConfig() {
       maxSearchFiles: Math.min(100, Math.max(5, Number(config?.limits?.maxSearchFiles) || 40)),
     },
     assistant: {
-      name: String(config?.assistant?.name || 'OKF Chat').slice(0, 80),
+      name: String(config?.assistant?.name || 'Maximus Intelligence').slice(0, 80),
       welcome: String(config?.assistant?.welcome || 'Como posso ajudar?').slice(0, 500),
       systemPrompt: String(config?.assistant?.systemPrompt || 'Responda em português brasileiro.').slice(0, 12_000),
     },

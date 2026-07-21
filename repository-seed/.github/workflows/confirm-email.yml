@@ -1,0 +1,128 @@
+name: Confirmar acesso Maximus por e-mail
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'data/verification-requests/*.json'
+
+permissions:
+  contents: write
+
+jobs:
+  send-confirmation:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Baixar base privada
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 2
+
+      - name: Identificar novas solicitações
+        id: requests
+        shell: bash
+        run: |
+          set -euo pipefail
+          BEFORE='${{ github.event.before }}'
+          AFTER='${{ github.event.after }}'
+          if [[ "$BEFORE" =~ ^0+$ ]]; then
+            FILES="$(git ls-tree -r --name-only "$AFTER" -- 'data/verification-requests/*.json' || true)"
+          else
+            FILES="$(git diff --name-only --diff-filter=AM "$BEFORE" "$AFTER" -- 'data/verification-requests/*.json' || true)"
+          fi
+          {
+            echo 'files<<EOF_FILES'
+            echo "$FILES"
+            echo 'EOF_FILES'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Enviar confirmação
+        if: steps.requests.outputs.files != ''
+        env:
+          REQUEST_FILES: ${{ steps.requests.outputs.files }}
+          SMTP_HOST: ${{ secrets.SMTP_HOST }}
+          SMTP_PORT: ${{ secrets.SMTP_PORT }}
+          SMTP_USERNAME: ${{ secrets.SMTP_USERNAME }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          SMTP_FROM: ${{ secrets.SMTP_FROM }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import smtplib
+          import ssl
+          from email.message import EmailMessage
+          from pathlib import Path
+
+          required = ['SMTP_HOST', 'SMTP_USERNAME', 'SMTP_PASSWORD', 'SMTP_FROM']
+          missing = [name for name in required if not os.environ.get(name)]
+          if missing:
+              raise SystemExit('Configure os secrets: ' + ', '.join(missing))
+
+          host = os.environ['SMTP_HOST']
+          port = int(os.environ.get('SMTP_PORT') or '465')
+          username = os.environ['SMTP_USERNAME']
+          password = os.environ['SMTP_PASSWORD']
+          sender = os.environ['SMTP_FROM']
+          files = [line.strip() for line in os.environ.get('REQUEST_FILES', '').splitlines() if line.strip()]
+
+          messages = []
+          for filename in files:
+              path = Path(filename)
+              if not path.is_file():
+                  continue
+              request = json.loads(path.read_text(encoding='utf-8'))
+              name = request['displayName']
+              public_id = request['publicId']
+              url = request['verificationUrl']
+              expires = request['expiresAt']
+
+              message = EmailMessage()
+              message['Subject'] = 'Confirme seu acesso à Maximus Engenharia Inteligente'
+              message['From'] = sender
+              message['To'] = request['email']
+              message.set_content(f'''Olá, {name}.
+
+Sua solicitação de acesso à Maximus Engenharia Inteligente foi registrada.
+
+Identificador único: {public_id}
+
+Confirme seu e-mail para ativar seu espaço privado de trabalho, consultar a base técnica da empresa e utilizar os recursos de inteligência local:
+
+{url}
+
+Esta confirmação expira em {expires}.
+
+Caso você não tenha solicitado este acesso, ignore esta mensagem.
+
+Maximus Empreendimentos
+Conhecimento técnico transformado em decisão.
+''')
+              message.add_alternative(f'''<!doctype html><html><body style="font-family:Arial,sans-serif;background:#f3f4f6;padding:24px;color:#17202a"><div style="max-width:620px;margin:auto;background:white;border-radius:16px;padding:32px;border-top:6px solid #b3944a"><p style="letter-spacing:.14em;font-size:12px;color:#806a33">MAXIMUS EMPREENDIMENTOS</p><h1>Confirme seu acesso</h1><p>Olá, <strong>{name}</strong>.</p><p>Sua solicitação de acesso à <strong>Maximus Engenharia Inteligente</strong> foi registrada.</p><p style="background:#f5f1e7;padding:14px;border-radius:10px">Identificador único: <strong>{public_id}</strong></p><p><a href="{url}" style="display:inline-block;background:#b3944a;color:#111;text-decoration:none;font-weight:bold;padding:14px 20px;border-radius:10px">Confirmar acesso</a></p><p style="color:#667085;font-size:13px">A confirmação expira em {expires}. Caso você não tenha solicitado este acesso, ignore esta mensagem.</p><hr style="border:0;border-top:1px solid #e5e7eb"><p style="font-size:13px"><strong>Maximus Empreendimentos</strong><br>Conhecimento técnico transformado em decisão.</p></div></body></html>''', subtype='html')
+              messages.append((message, path))
+
+          context = ssl.create_default_context()
+          if port == 465:
+              server = smtplib.SMTP_SSL(host, port, context=context)
+          else:
+              server = smtplib.SMTP(host, port)
+              server.starttls(context=context)
+          with server:
+              server.login(username, password)
+              for message, path in messages:
+                  server.send_message(message)
+                  path.unlink()
+          PY
+
+      - name: Remover solicitações processadas da branch
+        if: steps.requests.outputs.files != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          if git status --porcelain | grep -q .; then
+            git config user.name 'maximus-confirmation-bot'
+            git config user.email 'actions@users.noreply.github.com'
+            git add data/verification-requests
+            git commit -m 'Concluir envio de confirmações [skip ci]'
+            git push
+          fi

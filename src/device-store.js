@@ -1,4 +1,4 @@
-const DB_NAME = 'okf-chat-local';
+const DB_NAME = 'maximus-intelligence-local';
 const DB_VERSION = 1;
 const SETTINGS = 'settings';
 const KEYS = 'keys';

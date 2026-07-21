@@ -161,3 +161,59 @@ progress { width: 100%; height: 0.9rem; margin-top: 1.2rem; accent-color: #60a5f
   .composer-footer span { display: none; }
   .button-row > button { flex: 1; }
 }
+
+/* Maximus Empreendimentos — identidade de engenharia e inteligência local */
+.brand-lockup { display: flex; align-items: center; gap: 0.85rem; margin-bottom: 1.3rem; }
+.brand-lockup > div:last-child { display: grid; gap: 0.12rem; }
+.brand-lockup strong { font-size: 1rem; letter-spacing: 0.18em; }
+.brand-lockup span { color: #b7c0cc; font-size: 0.76rem; letter-spacing: 0.05em; }
+.field-help { margin: -0.55rem 0 0.8rem; color: #7f8a99; font-size: 0.75rem; line-height: 1.5; }
+.success-note { display: grid; gap: 0.25rem; margin-bottom: 1rem; border: 1px solid rgba(88, 193, 128, 0.4); border-radius: 14px; padding: 0.8rem 0.9rem; background: rgba(20, 83, 45, 0.24); }
+.success-note strong { color: #b7f7ca; }
+.success-note span { color: #9dc7aa; font-size: 0.8rem; line-height: 1.45; }
+.identity-card { display: grid; gap: 0.3rem; margin: 1.1rem 0; border: 1px solid #4b5360; border-radius: 16px; padding: 1rem; background: #111821; }
+.identity-card span, .identity-card small { color: #8f9aa8; }
+.identity-card strong { color: #e9c979; font-family: "IBM Plex Mono", ui-monospace, monospace; font-size: 1.1rem; letter-spacing: 0.04em; }
+.benefit-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 0.55rem; margin: 1rem 0 1.2rem; }
+.benefit-grid span { border: 1px solid #343c47; border-radius: 12px; padding: 0.65rem; background: #111821; color: #c5ccd5; font-size: 0.75rem; font-weight: 750; text-align: center; }
+.install-guide { display: grid; gap: 0.45rem; margin: 0.65rem 0; border: 1px solid rgba(205, 169, 83, 0.48); border-radius: 15px; padding: 0.85rem; background: linear-gradient(145deg, rgba(72, 58, 28, 0.44), rgba(21, 26, 33, 0.9)); }
+.install-guide strong { color: #f2dc9d; font-size: 0.84rem; }
+.install-guide p { margin: 0; color: #aab2bd; font-size: 0.7rem; line-height: 1.48; }
+.install-guide.installed { border-color: rgba(74, 171, 112, 0.42); background: rgba(20, 71, 43, 0.28); }
+.install-button { min-height: 38px; border: 1px solid #c9a957; border-radius: 10px; padding: 0.55rem 0.75rem; background: #c9a957; color: #16191e; cursor: pointer; font-weight: 900; }
+.install-button:disabled { background: #244231; border-color: #37614b; color: #b8dbc5; opacity: 1; }
+
+:root { background: #0b0f14; color: #f4f2ed; }
+body { background: #0b0f14; }
+.gate {
+  background:
+    radial-gradient(circle at 10% 0%, rgba(39, 83, 111, 0.28), transparent 34%),
+    radial-gradient(circle at 90% 15%, rgba(201, 169, 87, 0.13), transparent 30%),
+    linear-gradient(160deg, #151b23 0%, #0d1218 54%, #080b0f 100%);
+}
+.gate-card { border-color: rgba(201, 169, 87, 0.2); background: rgba(17, 23, 31, 0.92); }
+.eyebrow { color: #d9bd76; }
+.brand-mark { background: linear-gradient(145deg, #204e69, #c9a957); color: #fffdf6; box-shadow: 0 12px 35px rgba(201, 169, 87, 0.16); }
+input:focus, textarea:focus { border-color: #c9a957; box-shadow: 0 0 0 4px rgba(201, 169, 87, 0.1); }
+.primary { background: linear-gradient(135deg, #c9a957, #8f7335); color: #111419; box-shadow: 0 10px 28px rgba(201, 169, 87, 0.17); }
+progress { accent-color: #c9a957; }
+.loader { border-top-color: #c9a957; }
+.phase-ready, .chat-main { background-color: #0b0f14; }
+.sidebar { background: #10161d; border-color: #2a313a; }
+.sidebar-brand span, .user-chip span { color: #8f99a5; }
+.user-chip { background: #151d26; border-color: #303a45; }
+.avatar { background: #24485d; color: #e5d49c; }
+.upload-button { background: #d8c482; color: #15191e; }
+.resource-tabs { background: #0a0e13; }
+.resource-tabs button.active { background: #28323d; }
+.resource-card { background: #141c25; }
+.resource-icon { background: #1f465f; color: #d7ecf5; }
+.resource-icon.okf { background: #5a4722; color: #f1d98f; }
+.message.assistant .message-content { background: #151d27; border-color: #313b47; }
+.message.user .message-content { background: linear-gradient(135deg, #1f536f, #8d7337); }
+.runtime-pill span { background: #6ed092; box-shadow: 0 0 0 4px rgba(110, 208, 146, 0.1); }
+
+@media (max-width: 520px) {
+  .benefit-grid { grid-template-columns: 1fr; }
+  .install-guide { margin-bottom: 0.9rem; }
+}

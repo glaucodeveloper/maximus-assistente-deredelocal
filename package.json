@@ -1,7 +1,7 @@
 {
-  "name": "litert-gemma-pwa",
+  "name": "maximus-engenharia-inteligente-pwa",
   "private": true,
-  "version": "0.2.0",
+  "version": "1.0.3",
   "type": "module",
   "scripts": {
     "predev": "node scripts/copy-wasm.mjs",
@@ -10,7 +10,9 @@
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "validate": "node scripts/validate.mjs",
-    "doctor": "node scripts/doctor.mjs"
+    "doctor": "node scripts/doctor.mjs",
+    "publish": "bash scripts/build-and-publish.sh",
+    "package": "bash scripts/package-zip.sh"
   },
   "dependencies": {
     "@litert-lm/core": "0.14.0"

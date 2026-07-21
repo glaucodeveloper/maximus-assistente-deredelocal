@@ -1,4 +1,4 @@
-const CACHE_NAME = 'okf-chat-shell-v2';
+const CACHE_NAME = 'maximus-intelligence-shell-v4';
 const CORE = [
   './',
   './index.html',
@@ -14,34 +14,52 @@ self.addEventListener('install', event => {
 });
 
 self.addEventListener('activate', event => {
-  event.waitUntil(
-    caches.keys()
-      .then(keys => Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key))))
-      .then(() => self.clients.claim()),
-  );
+  event.waitUntil((async () => {
+    const keys = await caches.keys();
+    await Promise.all(keys.filter(key => key !== CACHE_NAME).map(key => caches.delete(key)));
+    await self.clients.claim();
+  })());
 });
+
+async function networkFirst(request) {
+  try {
+    const response = await fetch(request);
+    if (response.ok) {
+      const copy = response.clone();
+      await caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+    }
+    return response;
+  } catch (error) {
+    const cached = await caches.match(request);
+    if (cached) return cached;
+    if (request.mode === 'navigate') return caches.match('./index.html');
+    throw error;
+  }
+}
+
+async function cacheFirst(request) {
+  const cached = await caches.match(request);
+  if (cached) return cached;
+  const response = await fetch(request);
+  if (response.ok) {
+    const copy = response.clone();
+    await caches.open(CACHE_NAME).then(cache => cache.put(request, copy));
+  }
+  return response;
+}
 
 self.addEventListener('fetch', event => {
   const request = event.request;
   const url = new URL(request.url);
   if (request.method !== 'GET' || url.origin !== self.location.origin) return;
 
+  // O modelo fica no OPFS. Não cachear downloads grandes nem respostas parciais.
+  if (url.pathname.endsWith('.litertlm') || request.headers.has('range')) return;
+
   if (request.mode === 'navigate' || url.pathname.endsWith('/app-config.json')) {
-    event.respondWith(
-      fetch(request)
-        .then(response => {
-          if (response.ok) caches.open(CACHE_NAME).then(cache => cache.put(request, response.clone()));
-          return response;
-        })
-        .catch(() => caches.match(request).then(cached => cached ?? caches.match('./index.html'))),
-    );
+    event.respondWith(networkFirst(request));
     return;
   }
 
-  event.respondWith(
-    caches.match(request).then(cached => cached ?? fetch(request).then(response => {
-      if (response.ok) caches.open(CACHE_NAME).then(cache => cache.put(request, response.clone()));
-      return response;
-    })),
-  );
+  event.respondWith(cacheFirst(request));
 });

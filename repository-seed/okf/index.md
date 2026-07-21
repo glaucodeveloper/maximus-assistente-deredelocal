@@ -1,13 +1,11 @@
 ---
 type: index
-title: "Base de conhecimento OKF"
-description: "Índice principal consumido pelo OKF Chat"
+title: "Base de conhecimento Maximus"
+description: "Índice corporativo da Maximus Engenharia Inteligente"
 ---
 
-# Base de conhecimento OKF
+# Base de conhecimento Maximus
 
-Este diretório contém conhecimento compartilhado da aplicação.
+Este espaço reúne decisões, requisitos, riscos, aprendizados, referências e procedimentos que sustentam a atuação técnica da Maximus Empreendimentos.
 
-- [Sobre a aplicação](application.md)
-
-Adicione conceitos, referências, decisões, métricas e procedimentos como arquivos Markdown com frontmatter YAML.
+Adicione documentos Markdown com frontmatter YAML para preservar contexto, autoria, projeto relacionado e histórico de decisões.

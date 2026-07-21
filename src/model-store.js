@@ -1,9 +1,11 @@
 export const MODEL = Object.freeze({
-  id: 'gemma-4-e2b-web',
-  filename: 'gemma-4-E2B-it-web.litertlm',
+  id: 'gemma-4-e2b-web-r4',
+  filename: 'gemma-4-E2B-it-web-r4.litertlm',
   displayName: 'Gemma 4 E2B IT Web',
   url: 'https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it-web.litertlm',
   approximateBytes: 2_008_000_000,
+  minimumBytes: 1_900_000_000,
+  storageVersion: 4,
 });
 
 async function rootDirectory() {
@@ -19,7 +21,7 @@ export async function getModelFile() {
   const handle = await root.getFileHandle(MODEL.filename);
   const file = await handle.getFile();
 
-  if (file.size < 1_500_000_000) {
+  if (file.size < MODEL.minimumBytes) {
     throw new Error('O arquivo local do modelo está incompleto. Baixe novamente.');
   }
 
@@ -98,7 +100,7 @@ export async function downloadModel({onProgress = () => {}, signal} = {}) {
   }
 
   const file = await handle.getFile();
-  if (file.size < 1_500_000_000) {
+  if (file.size < MODEL.minimumBytes) {
     await root.removeEntry(MODEL.filename).catch(() => {});
     throw new Error('O download terminou com um arquivo menor que o esperado.');
   }

@@ -1,16 +1,25 @@
 ---
-type: concept
-title: "OKF Chat"
-tags: [okf, chat, local-llm]
+type: reference
+title: "Maximus Engenharia Inteligente"
+tags: [maximus, engenharia, inteligencia-local, pwa]
 ---
 
-# OKF Chat
+# Maximus Engenharia Inteligente
 
-OKF Chat é uma aplicação frontend instalada como PWA. O modelo Gemma 4 é executado localmente com LiteRT-LM. A base compartilhada e os namespaces dos usuários ficam em um repositório privado no GitHub.
+A Maximus Engenharia Inteligente transforma documentos, projetos e experiências da Maximus Empreendimentos em conhecimento técnico pesquisável, rastreável e aplicável.
+
+## Capacidades
+
+- execução local do modelo Gemma 4 por LiteRT-LM;
+- consulta a artefatos autorizados;
+- criação assistida de documentos OKF;
+- separação lógica dos espaços dos usuários;
+- aprovação humana antes de operações de escrita;
+- instalação como PWA para reutilização do modelo no dispositivo.
 
 ## Princípios
 
-- O token do GitHub permanece no navegador.
-- O modelo local não recebe o token.
-- Ferramentas de leitura podem consultar arquivos e documentos OKF.
-- Ferramentas de escrita exigem aprovação do usuário.
+- O modelo local não recebe a chave do GitHub.
+- Toda afirmação documental deve indicar sua fonte.
+- Ferramentas de escrita exigem aprovação explícita.
+- Conteúdo gerado é tratado como rascunho até revisão profissional.

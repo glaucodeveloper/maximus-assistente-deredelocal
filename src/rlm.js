@@ -30,6 +30,17 @@ Regras:
 5. Depois de receber TOOL_RESULT, continue a tarefa. Quando tiver a resposta final, responda normalmente, sem bloco tool_call.
 `;
 
+const SPECIAL_TOKEN_PATTERN = /<(?:pad|bos|eos|start_of_turn|end_of_turn)>/i;
+const TOKEN_PATTERN = /<[^>]+>|[\p{L}\p{N}_-]+|[^\s]/gu;
+
+export class UnsafeModelOutputError extends Error {
+  constructor(message = 'A inteligência local produziu uma saída inválida.') {
+    super(message);
+    this.name = 'UnsafeModelOutputError';
+    this.code = 'UNSAFE_MODEL_OUTPUT';
+  }
+}
+
 export function buildRlmSystemPrompt(config) {
   return `${config.assistant.systemPrompt}\n\nVocê trabalha com Open Knowledge Format (OKF): Markdown com frontmatter YAML e links Markdown, organizado em diretórios versionados no Git.\n${TOOL_PROTOCOL}`;
 }
@@ -53,26 +64,86 @@ function parseToolCall(text) {
   }
 }
 
-async function collect(stream) {
+function hasRepetitionLoop(value) {
+  const tokens = String(value ?? '').toLowerCase().match(TOKEN_PATTERN) ?? [];
+  if (tokens.length < 36) return false;
+  const tail = tokens.slice(-36);
+  const unique = new Set(tail);
+  if (unique.size <= 2) return true;
+
+  for (const width of [1, 2, 3, 4]) {
+    const pattern = tail.slice(-width).join('\u0000');
+    let repeats = 0;
+    for (let offset = tail.length - width; offset >= 0; offset -= width) {
+      if (tail.slice(offset, offset + width).join('\u0000') !== pattern) break;
+      repeats += 1;
+    }
+    if (repeats >= 8) return true;
+  }
+  return false;
+}
+
+async function collectSafe(stream, {cancel = () => {}, maxChars = 64_000} = {}) {
   let text = '';
   for await (const chunk of stream) {
     for (const item of chunk.content ?? []) {
-      if (item.type === 'text') text += item.text;
+      if (item.type !== 'text') continue;
+      text += item.text;
+
+      if (SPECIAL_TOKEN_PATTERN.test(text)) {
+        cancel();
+        throw new UnsafeModelOutputError('A sessão local emitiu tokens internos e foi interrompida antes de exibir o conteúdo.');
+      }
+      if (text.length > maxChars) {
+        cancel();
+        throw new UnsafeModelOutputError('A resposta ultrapassou o limite seguro de geração e foi interrompida.');
+      }
+      if (hasRepetitionLoop(text)) {
+        cancel();
+        throw new UnsafeModelOutputError('A geração entrou em repetição e foi interrompida antes de chegar à interface.');
+      }
     }
   }
-  return text;
+
+  const normalized = text.trim();
+  if (!normalized) throw new UnsafeModelOutputError('A inteligência local não produziu uma resposta válida.');
+  return normalized;
+}
+
+export async function validateModelEngine(engine) {
+  const conversation = await engine.createConversation({
+    preface: {
+      messages: [{
+        role: 'system',
+        content: 'Você está realizando um teste técnico de integridade. Responda somente com MAXIMUS_OK.',
+      }],
+    },
+  });
+
+  try {
+    const response = await collectSafe(
+      conversation.sendMessageStreaming('Responda somente: MAXIMUS_OK'),
+      {cancel: () => conversation.cancel?.(), maxChars: 512},
+    );
+    if (!/MAXIMUS[\s_-]*OK/i.test(response)) {
+      throw new UnsafeModelOutputError('O modelo local não passou no teste de integridade.');
+    }
+    return true;
+  } finally {
+    conversation.cancel?.();
+  }
 }
 
 function toolLabel(name) {
   return ({
-    list_user_files: 'Listando arquivos',
-    read_user_file: 'Lendo arquivo',
-    search_user_files: 'Buscando nos arquivos',
+    list_user_files: 'Mapeando artefatos autorizados',
+    read_user_file: 'Analisando artefato técnico',
+    search_user_files: 'Pesquisando na base técnica',
     list_okf: 'Listando a base OKF',
-    read_okf: 'Lendo documento OKF',
+    read_okf: 'Consultando conhecimento estruturado',
     search_okf: 'Buscando na base OKF',
     create_okf: 'Preparando documento OKF',
-    create_okf_from_file: 'Preparando OKF a partir do arquivo',
+    create_okf_from_file: 'Transformando artefato em conhecimento estruturado',
   })[name] || `Executando ${name}`;
 }
 
@@ -127,10 +198,10 @@ async function executeTool({call, repository, config, user, requestApproval}) {
       const approved = await requestApproval({
         kind: 'create_okf',
         title: input.title,
-        description: 'O modelo quer gravar este documento no namespace OKF do usuário.',
+        description: 'A inteligência propõe incorporar este conhecimento ao espaço técnico do usuário.',
         preview: input.body.slice(0, 3000),
       });
-      if (!approved) return {status: 'cancelled', message: 'O usuário recusou a criação do OKF.'};
+      if (!approved) return {status: 'cancelled', message: 'A proposta foi descartada sem alterar a base Maximus.'};
       const created = await createOkfDocument(repository, config, user, input);
       return {status: 'created', path: created.path};
     }
@@ -148,10 +219,10 @@ async function executeTool({call, repository, config, user, requestApproval}) {
       const approved = await requestApproval({
         kind: 'create_okf_from_file',
         title: input.title,
-        description: `O modelo quer criar um OKF baseado em “${source.metadata.name}”.`,
+        description: `A inteligência propõe criar conhecimento estruturado com base em “${source.metadata.name}”.`,
         preview: input.body.slice(0, 3000),
       });
-      if (!approved) return {status: 'cancelled', message: 'O usuário recusou a criação do OKF.'};
+      if (!approved) return {status: 'cancelled', message: 'A proposta foi descartada sem alterar a base Maximus.'};
       const created = await createOkfDocument(repository, config, user, input);
       return {status: 'created', path: created.path, source: source.metadata.path};
     }
@@ -175,10 +246,13 @@ export async function runRlm({
 
   for (let step = 0; step <= config.limits.maxToolSteps; step += 1) {
     onStatus(step === 0 ? 'Analisando pergunta…' : `Raciocínio recursivo ${step}/${config.limits.maxToolSteps}…`);
-    const output = await collect(conversation.sendMessageStreaming(nextInput));
+    const output = await collectSafe(
+      conversation.sendMessageStreaming(nextInput),
+      {cancel: () => conversation.cancel?.(), maxChars: 64_000},
+    );
     const call = parseToolCall(output);
 
-    if (!call) return output.trim();
+    if (!call) return output;
     if (call.parseError) {
       nextInput = `Seu tool_call não era JSON válido: ${call.parseError}. Emita novamente apenas o bloco <tool_call>{...}</tool_call>.`;
       continue;
