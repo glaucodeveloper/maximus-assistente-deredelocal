@@ -1,4 +1,4 @@
-const CACHE_NAME = 'maximus-intelligence-shell-v5';
+const CACHE_NAME = 'maximus-intelligence-shell-v6';
 
 const CORE = [
   './',
@@ -22,7 +22,10 @@ self.addEventListener('activate', event => {
     const keys = await caches.keys();
     await Promise.all(
       keys
-        .filter(key => key !== CACHE_NAME)
+        .filter(key =>
+          key.startsWith('maximus-intelligence-shell-') &&
+          key !== CACHE_NAME
+        )
         .map(key => caches.delete(key)),
     );
     await self.clients.claim();
@@ -35,7 +38,7 @@ self.addEventListener('activate', event => {
     for (const client of clients) {
       client.postMessage({
         type: 'MAXIMUS_VERSION_READY',
-        version: 'v5',
+        version: 'v6',
       });
     }
   })());

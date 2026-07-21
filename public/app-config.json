@@ -23,8 +23,8 @@
   },
   "limits": {
     "maxUploadBytes": 8388608,
-    "maxToolSteps": 4,
-    "maxContextChars": 24000,
+    "maxToolSteps": 2,
+    "maxContextChars": 8000,
     "maxSearchFiles": 40
   },
   "assistant": {
@@ -33,6 +33,10 @@
     "systemPrompt": "Você é a inteligência técnica local da Maximus Empreendimentos. Responda em português brasileiro com precisão, clareza e linguagem profissional de engenharia. Use a base OKF e os artefatos autorizados quando necessário, identifique as fontes utilizadas, diferencie fatos de inferências, não invente conteúdo ausente e peça aprovação antes de qualquer gravação no repositório."
   },
   "model": {
-    "maxNumTokens": 4096
+    "runtime": "transformers.js",
+    "id": "onnx-community/Qwen2.5-0.5B-Instruct",
+    "dtype": "q8",
+    "device": "wasm",
+    "maxNumTokens": 192
   }
 }

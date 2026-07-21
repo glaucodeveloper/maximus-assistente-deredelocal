@@ -1,12 +1,10 @@
 {
   "name": "maximus-engenharia-inteligente-pwa",
   "private": true,
-  "version": "1.0.7",
+  "version": "2.0.1",
   "type": "module",
   "scripts": {
-    "predev": "node scripts/copy-wasm.mjs",
     "dev": "vite --host 0.0.0.0",
-    "prebuild": "node scripts/copy-wasm.mjs",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0",
     "validate": "node scripts/validate.mjs",
@@ -15,7 +13,7 @@
     "package": "bash scripts/package-zip.sh"
   },
   "dependencies": {
-    "@litert-lm/core": "0.14.0"
+    "@huggingface/transformers": "3.8.1"
   },
   "devDependencies": {
     "vite": "7.3.6"

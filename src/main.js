@@ -1,4 +1,3 @@
-import {Engine, loadLiteRtLm} from '@litert-lm/core';
 import {component, escapeHtml, safeId} from './component.js';
 import {clearGithubToken, loadGithubToken, saveGithubToken} from './device-store.js';
 import {GitHubRepository, loadAppConfig} from './github.js';
@@ -9,15 +8,10 @@ import {
   readOkfDocument,
   uploadUserFile,
 } from './knowledge-store.js';
-import {deleteModel, downloadModel, formatBytes, getModelFile, hasModel, MODEL} from './model-store.js';
+import {deleteModel, downloadModel, Engine, ensureTransformersRuntime, formatBytes, getModelFile, hasModel, MODEL} from './transformers-runtime.js';
 import {buildRlmSystemPrompt, runRlm, UnsafeModelOutputError, validateModelEngine} from './rlm.js';
 import {isStandalone, registerServiceWorker, warmInstalledApp} from './pwa.js';
 
-let liteRtRuntimePromise = null;
-function ensureLiteRtRuntime() {
-  if (!liteRtRuntimePromise) liteRtRuntimePromise = loadLiteRtLm('./wasm/');
-  return liteRtRuntimePromise;
-}
 
 function renderMessages(messages) {
   return messages.map(message => `
@@ -257,14 +251,8 @@ function* AppComponent({id}) {
     if (this.modelLoadPromise && !force) return this.modelLoadPromise;
     this.modelLoadPromise = (async () => {
       try {
-        this.patch({phase: 'loading-model', busy: true, error: '', status: 'Ativando a inteligência Maximus com aceleração local…'});
-        if (!navigator.gpu) {
-          throw new Error('A aceleração gráfica necessária não está disponível. Atualize o Chromium e habilite a aceleração de hardware.');
-        }
-        if (typeof WebAssembly.Suspending !== 'function' || typeof WebAssembly.promising !== 'function') {
-          throw new Error('Este navegador ainda não oferece os recursos WebAssembly necessários. Utilize uma versão recente do Chromium no Manjaro.');
-        }
-        await ensureLiteRtRuntime();
+        this.patch({phase: 'loading-model', busy: true, error: '', status: 'Ativando a inteligência Maximus em CPU local…'});
+        await ensureTransformersRuntime();
         const modelFile = await getModelFile();
         await this.disposeModel();
         // Fluxo mínimo oficial do LiteRT-LM Web.
@@ -284,7 +272,7 @@ function* AppComponent({id}) {
         await this.disposeModel();
         const modelStillStored = await hasModel().catch(() => false);
         const detail = error?.code === 'UNSAFE_MODEL_OUTPUT'
-          ? 'O teste de integridade bloqueou uma saída inválida. O arquivo local foi preservado; reinicie o Chromium ou atualize o driver gráfico e tente ativá-lo novamente.'
+          ? 'O modelo de CPU foi preservado no cache local, mas não concluiu o teste de inicialização. Feche outras abas e tente ativá-lo novamente.'
           : error.message;
         this.patch({
           phase: 'model',
@@ -555,11 +543,11 @@ function* AppComponent({id}) {
                   <div class="brand-mark">AI</div>
                   <p class="eyebrow">Inteligência própria no dispositivo</p>
                   <h1>Prepare sua inteligência local</h1>
-                  <p class="lead">O núcleo de inteligência da Maximus será armazenado neste dispositivo para analisar documentos e apoiar decisões técnicas com processamento local.</p>
-                  <div class="benefit-grid"><span>Processamento local</span><span>Maior privacidade</span><span>Reutilização sem novo download</span><span>Operação com conexão limitada</span></div>
+                  <p class="lead">O núcleo compacto de inteligência da Maximus será armazenado neste dispositivo e executado pela CPU, sem exigir placa gráfica dedicada.</p>
+                  <div class="benefit-grid"><span>CPU e WebAssembly</span><span>Maior compatibilidade</span><span>Reutilização sem novo download</span><span>Operação com conexão limitada</span></div>
                   <div class="model-spec"><span>${MODEL.displayName}</span><strong>≈ ${formatBytes(MODEL.approximateBytes)}</strong></div>
                   <progress max="100" value="${this.state.progress}"></progress>
-                  <p class="progress-copy">${this.state.modelReady ? 'O modelo já está armazenado neste dispositivo e será reutilizado sem novo download.' : this.state.progress ? `Preparando inteligência local: ${this.state.progress}% · ${formatBytes(this.state.downloaded)} de ${formatBytes(this.state.total)}` : 'Este recurso utiliza WebGPU e o armazenamento privado do navegador.'}</p>
+                  <p class="progress-copy">${this.state.modelReady ? 'O modelo já está armazenado neste dispositivo e será reutilizado sem novo download.' : this.state.progress ? `Preparando inteligência local: ${this.state.progress}% · ${formatBytes(this.state.downloaded)} de ${formatBytes(this.state.total)}` : 'Este recurso utiliza CPU, WebAssembly e o cache privado do navegador.'}</p>
                   <div class="button-row">
                     <button class="primary" ${this.state.busy ? 'disabled' : ''} onclick="document.getElementById('${this.id}').component.${this.state.modelReady ? 'loadModel({force:true})' : 'startModelDownload()'}">${this.state.busy ? 'Ativando inteligência…' : this.state.modelReady ? 'Ativar modelo já armazenado' : 'Preparar inteligência Maximus'}</button>
                     ${this.state.busy ? `<button class="secondary" onclick="document.getElementById('${this.id}').component.cancelModelDownload()">Interromper preparação</button>` : ''}
