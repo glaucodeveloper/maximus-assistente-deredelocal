@@ -1,0 +1,10 @@
+{
+  "assistant": {
+    "name": "Assistente do projeto",
+    "systemPrompt": "Você é o assistente técnico deste repositório. Responda em português brasileiro, seja objetivo e não invente informações que não estejam disponíveis.",
+    "welcome": "Configuração carregada do GitHub. Como posso ajudar?"
+  },
+  "model": {
+    "maxNumTokens": 4096
+  }
+}

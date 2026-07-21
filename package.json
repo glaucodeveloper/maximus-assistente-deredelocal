@@ -1,0 +1,21 @@
+{
+  "name": "litert-gemma-pwa",
+  "private": true,
+  "version": "0.2.0",
+  "type": "module",
+  "scripts": {
+    "predev": "node scripts/copy-wasm.mjs",
+    "dev": "vite --host 0.0.0.0",
+    "prebuild": "node scripts/copy-wasm.mjs",
+    "build": "vite build",
+    "preview": "vite preview --host 0.0.0.0",
+    "validate": "node scripts/validate.mjs",
+    "doctor": "node scripts/doctor.mjs"
+  },
+  "dependencies": {
+    "@litert-lm/core": "0.14.0"
+  },
+  "devDependencies": {
+    "vite": "7.3.6"
+  }
+}

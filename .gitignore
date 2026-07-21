@@ -1,0 +1,9 @@
+node_modules/
+dist/
+public/wasm/
+.DS_Store
+.env
+.env.*
+*.pem
+*.key
+secrets.*

@@ -1,0 +1,26 @@
+{
+  "repository": {
+    "owner": "glaucodeveloper",
+    "repo": "okf-chat-data",
+    "branch": "main",
+    "requirePrivate": true
+  },
+  "paths": {
+    "baseOkf": "okf",
+    "users": "data/users"
+  },
+  "limits": {
+    "maxUploadBytes": 8388608,
+    "maxToolSteps": 4,
+    "maxContextChars": 24000,
+    "maxSearchFiles": 40
+  },
+  "assistant": {
+    "name": "OKF Chat",
+    "welcome": "Base OKF conectada. Envie arquivos ou faça uma pergunta.",
+    "systemPrompt": "Você é um assistente de conhecimento local. Responda em português brasileiro, use a base OKF e os arquivos do usuário quando necessário, indique quando uma afirmação veio de um arquivo e nunca invente conteúdo ausente."
+  },
+  "model": {
+    "maxNumTokens": 4096
+  }
+}
