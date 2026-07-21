@@ -281,13 +281,17 @@ function* AppComponent({id}) {
         });
       } catch (error) {
         await this.disposeModel();
-        if (error?.code === 'UNSAFE_MODEL_OUTPUT') {
-          await deleteModel().catch(() => {});
-        }
+        const modelStillStored = await hasModel().catch(() => false);
         const detail = error?.code === 'UNSAFE_MODEL_OUTPUT'
-          ? 'O teste de integridade bloqueou uma saída inválida antes de exibi-la. O arquivo local foi removido; atualize o Chromium e os drivers gráficos antes de preparar novamente.'
+          ? 'O teste de integridade bloqueou uma saída inválida. O arquivo local foi preservado; reinicie o Chromium ou atualize o driver gráfico e tente ativá-lo novamente.'
           : error.message;
-        this.patch({phase: 'model', busy: false, modelReady: false, status: 'Não foi possível ativar a inteligência local.', error: detail});
+        this.patch({
+          phase: 'model',
+          busy: false,
+          modelReady: modelStillStored,
+          status: 'Não foi possível ativar a inteligência local.',
+          error: detail,
+        });
         throw error;
       } finally {
         this.modelLoadPromise = null;
@@ -394,13 +398,12 @@ function* AppComponent({id}) {
       const cancelled = error?.name === 'AbortError';
       if (error?.code === 'UNSAFE_MODEL_OUTPUT' || error instanceof UnsafeModelOutputError) {
         await this.disposeModel();
-        await deleteModel().catch(() => {});
         this.patch({
           phase: 'model',
-          modelReady: false,
+          modelReady: true,
           generating: false,
-          status: 'A proteção de integridade interrompeu a inteligência local.',
-          error: 'Nenhum token interno foi exibido. O modelo local foi removido para impedir nova ocorrência; prepare-o novamente após atualizar o navegador e o driver gráfico.',
+          status: 'A proteção de integridade interrompeu somente a sessão atual.',
+          error: 'Nenhum token interno foi exibido. O arquivo de aproximadamente 2 GB foi preservado; reinicie o Chromium ou atualize o driver gráfico e tente ativá-lo novamente.',
         });
       } else {
         this.patch({generating: false, status: cancelled ? 'A análise foi interrompida.' : 'Não foi possível concluir a análise técnica.', error: cancelled ? '' : error.message});
@@ -555,9 +558,9 @@ function* AppComponent({id}) {
                   <div class="benefit-grid"><span>Processamento local</span><span>Maior privacidade</span><span>Reutilização sem novo download</span><span>Operação com conexão limitada</span></div>
                   <div class="model-spec"><span>${MODEL.displayName}</span><strong>≈ ${formatBytes(MODEL.approximateBytes)}</strong></div>
                   <progress max="100" value="${this.state.progress}"></progress>
-                  <p class="progress-copy">${this.state.progress ? `Preparando inteligência local: ${this.state.progress}% · ${formatBytes(this.state.downloaded)} de ${formatBytes(this.state.total)}` : 'Este recurso utiliza WebGPU e o armazenamento privado do navegador.'}</p>
+                  <p class="progress-copy">${this.state.modelReady ? 'O modelo já está armazenado neste dispositivo e será reutilizado sem novo download.' : this.state.progress ? `Preparando inteligência local: ${this.state.progress}% · ${formatBytes(this.state.downloaded)} de ${formatBytes(this.state.total)}` : 'Este recurso utiliza WebGPU e o armazenamento privado do navegador.'}</p>
                   <div class="button-row">
-                    <button class="primary" ${this.state.busy ? 'disabled' : ''} onclick="document.getElementById('${this.id}').component.startModelDownload()">${this.state.busy ? 'Transferindo núcleo…' : 'Preparar inteligência Maximus'}</button>
+                    <button class="primary" ${this.state.busy ? 'disabled' : ''} onclick="document.getElementById('${this.id}').component.${this.state.modelReady ? 'loadModel({force:true})' : 'startModelDownload()'}">${this.state.busy ? 'Ativando inteligência…' : this.state.modelReady ? 'Ativar modelo já armazenado' : 'Preparar inteligência Maximus'}</button>
                     ${this.state.busy ? `<button class="secondary" onclick="document.getElementById('${this.id}').component.cancelModelDownload()">Interromper preparação</button>` : ''}
                     <button class="secondary" onclick="document.getElementById('${this.id}').component.logout()">Sair com segurança</button>
                   </div>
