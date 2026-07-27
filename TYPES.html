@@ -1,0 +1,414 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Especificação Técnica de Tipos - Engenharia</title>
+  <style>
+    :root {
+      --blue: #0A61D8;         /* Primary brand color */
+      --blue-dark: #173A6A;    /* Dark headers & titles */
+      --blue-soft: #EAF3FF;    /* Accent background for badges/kickers */
+      --text: #16233B;         /* Body copy text */
+      --muted: #63748C;        /* Secondary/muted text */
+      --border: #D9E3EF;       /* Borders, table lines */
+      --bg: #F4F7FB;           /* Global window background */
+      --card: #FFFFFF;         /* White containers/sheets */
+      --code-bg: #F8FAFC;      /* Background for code blocks */
+    }
+
+    @page {
+      size: A4 portrait;
+      margin: 12mm;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: Arial, Helvetica, sans-serif;
+      font-size: 11.5px;
+      line-height: 1.45;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .print-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      background: #0f172a;
+      color: white;
+    }
+
+    .print-toolbar span {
+      font-weight: 700;
+    }
+
+    .print-toolbar button {
+      background: var(--blue);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .print-toolbar button:hover {
+      background: #0952b6;
+    }
+
+    .document {
+      max-width: 190mm;
+      margin: 0 auto;
+      padding: 8mm 0 14mm;
+    }
+
+    .sheet {
+      background: #fff;
+      border: 1px solid var(--border);
+      margin: 0 0 6mm;
+      padding: 10mm 10mm 9mm;
+      border-radius: 10px;
+      position: relative;
+      page-break-inside: avoid;
+      break-inside: avoid;
+    }
+
+    .sheet.cover {
+      min-height: 265mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      page-break-after: always;
+      break-after: page;
+    }
+
+    .print-safe {
+      position: absolute;
+      inset: 6mm;
+      border: 1px dashed #E7EDF5;
+      border-radius: 6px;
+      pointer-events: none;
+    }
+
+    /* Cabeçalho */
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      margin-bottom: 6mm;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 4mm;
+    }
+
+    .logo-fallback {
+      background: var(--blue);
+      color: white;
+      font-weight: 900;
+      font-size: 16px;
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+
+    .kicker {
+      font-size: 9px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      color: var(--blue);
+      display: block;
+      margin-bottom: 1.5px;
+    }
+
+    h1 {
+      color: var(--blue-dark);
+      font-size: 18px;
+      font-weight: 700;
+    }
+
+    h2 {
+      color: var(--blue-dark);
+      font-size: 14px;
+      font-weight: 700;
+      margin-top: 4mm;
+      margin-bottom: 2mm;
+      border-left: 3px solid var(--blue);
+      padding-left: 6px;
+    }
+
+    h3 {
+      color: var(--blue-dark);
+      font-size: 11px;
+      font-weight: 700;
+      margin-top: 3mm;
+      margin-bottom: 1.5mm;
+    }
+
+    p, li {
+      color: var(--text);
+      margin-bottom: 2mm;
+    }
+
+    ul {
+      margin-left: 5mm;
+      margin-bottom: 3mm;
+    }
+
+    /* Código Monospaçado */
+    pre, code {
+      font-family: "SFMono-Regular", Consolas, "Liberation Mono", Menlo, monospace;
+      font-size: 9px;
+    }
+
+    pre {
+      background: var(--code-bg);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 3mm;
+      overflow-x: auto;
+      margin-bottom: 4mm;
+      line-height: 1.35;
+    }
+
+    /* Grids e Tabelas */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 5mm;
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 2mm;
+      margin-bottom: 4mm;
+      table-layout: fixed;
+    }
+
+    th, td {
+      border: 1px solid var(--border);
+      padding: 2mm;
+      vertical-align: top;
+      text-align: left;
+    }
+
+    th {
+      background: #F5FAFF;
+      color: var(--blue-dark);
+      font-size: 9.5px;
+      font-weight: 700;
+    }
+
+    .footer {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-top: 1px solid var(--border);
+      padding-top: 3mm;
+      margin-top: 6mm;
+      font-size: 9px;
+      color: var(--muted);
+    }
+
+    @media print {
+      .print-toolbar {
+        display: none;
+      }
+      body, html {
+        background: #fff;
+      }
+      .sheet {
+        border: none;
+        padding: 0;
+        margin: 0;
+        box-shadow: none;
+        page-break-after: always;
+        break-after: page;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <div class="print-toolbar">
+    <span>Visualização de Relatório Técnico (A4 Portrait)</span>
+    <button onclick="window.print()">Imprimir / Salvar PDF</button>
+  </div>
+
+  <div class="document">
+
+    <!-- SHEET 1: CAPA E DESCRIÇÃO -->
+    <div class="sheet cover">
+      <div class="print-safe"></div>
+      
+      <div class="brand">
+        <div class="logo-fallback">M</div>
+        <div>
+          <span class="kicker">Especificação Técnica de Software</span>
+          <h1>Servidor Engenharia</h1>
+        </div>
+      </div>
+
+      <div style="flex-grow: 1; display: flex; flex-direction: column; justify-content: center;">
+        <h2 style="border: none; padding-left: 0; font-size: 16px; margin-bottom: 4mm;">Descrição Geral do Sistema</h2>
+        <p>Este documento formaliza as especificações técnicas de tipos de dados, contratos de endpoints da API REST e as assinaturas das rotinas de serviços internos que estruturam o servidor local de Engenharia.</p>
+        <p>A arquitetura de dados e de execução é composta pelos seguintes elementos factuais:</p>
+        <ul>
+          <li><strong>Banco de Dados (SQLite)</strong>: Motor relacional em modo WAL responsável pela persistência local das tabelas de usuários, permissões, tarefas técnicas e documentos.</li>
+          <li><strong>Servidor de Arquivos (FTP)</strong>: Isolamento lógico de diretórios e validação de permissões de escrita em tempo real para controle interbancário de arquivos de projeto.</li>
+          <li><strong>Pipeline de Processamento (IA)</strong>: Sistema de detecção de eventos e de extração automatizada de texto em arquivos PDF/TXT para padronização no formato OKF (Obsidian Knowledge Folders).</li>
+          <li><strong>Interface de Serviços e APIs</strong>: Endpoints Express que expõem as capacidades funcionais do banco de dados e habilitam o fluxo RAG (Retrieval-Augmented Generation) com a API do Gemini.</li>
+        </ul>
+      </div>
+
+      <div class="footer">
+        <span>Engenharia &bull; Especificação de Software</span>
+        <span>ID: ENG-TYPES-2026</span>
+      </div>
+    </div>
+
+    <!-- SHEET 2: GRAMÁTICA DE ESTRUTURAÇÃO (DADOS) -->
+    <div class="sheet">
+      <div class="print-safe"></div>
+      
+      <div class="brand">
+        <div class="logo-fallback">M</div>
+        <div>
+          <span class="kicker">Modelagem de Dados</span>
+          <h1>Gramática de Estruturação - EBNF</h1>
+        </div>
+      </div>
+
+      <h2>Entidades do Banco de Dados</h2>
+      <p>As definições formais abaixo em notação EBNF definem o layout físico e os tipos das colunas persistidas no banco de dados SQLite:</p>
+
+      <pre><code>(* Estruturas principais de dados *)
+DataModel = User | Permission | Task | Document ;
+
+(* Estrutura do Usuário *)
+User = "{" , MacProp , "," , IpProp , "," , NameProp , "," , RoleProp , "," , SectorProp , "," , RegisteredAtProp , "}" ;
+MacProp          = '"mac"' , ":" , String ;          (* Endereço MAC do dispositivo físico *)
+IpProp           = '"ip"' , ":" , String ;           (* Endereço IP do dispositivo na rede local *)
+NameProp         = '"name"' , ":" , String ;         (* Nome completo do operador do sistema *)
+RoleProp         = '"role"' , ":" , String ;         (* Cargo técnico ou administrativo *)
+SectorProp       = '"sector"' , ":" , String ;       (* Setor técnico da engenharia *)
+RegisteredAtProp = '"registered_at"' , ":" , Date ;  (* Carimbo de data/hora do registro *)
+
+(* Estrutura de Permissão de Upload *)
+Permission = "{" , IdProp , "," , RequesterMacProp , "," , TargetUsernameProp , "," , PermissionStatusProp , "," , RequestedAtProp , [ "," , RequesterNameProp , "," , RequesterRoleProp , "," , RequesterSectorProp ] , "}" ;
+IdProp               = '"id"' , ":" , Integer ;            (* Identificador numérico único sequencial *)
+RequesterMacProp     = '"requester_mac"' , ":" , String ;  (* MAC do solicitante da permissão *)
+TargetUsernameProp   = '"target_username"' , ":" , String; (* Diretório FTP de destino solicitado *)
+PermissionStatusProp = '"status"' , ":" , StatusValue ;    (* Status da autorização de gravação *)
+RequestedAtProp      = '"requested_at"' , ":" , Date ;     (* Carimbo de data/hora da solicitação *)
+RequesterNameProp    = '"requester_name"' , ":" , String ;  (* Nome do solicitante *)
+RequesterRoleProp    = '"requester_role"' , ":" , String ;  (* Cargo do solicitante *)
+RequesterSectorProp  = '"requester_sector"' , ":" , String;(* Setor do solicitante *)
+StatusValue          = '"pending"' | '"approved"' | '"rejected"' ;
+
+(* Estrutura de Tarefa *)
+Task = "{" , IdProp , "," , TitleProp , "," , DescriptionProp , "," , AssignedToMacProp , "," , TaskStatusProp , "," , CreatedAtProp , [ "," , AssignedToNameProp , "," , AssignedToRoleProp ] , "}" ;
+TitleProp          = '"title"' , ":" , String ;          (* Título descritivo da tarefa *)
+DescriptionProp    = '"description"' , ":" , String ;    (* Detalhamento das atividades requeridas *)
+AssignedToMacProp  = '"assigned_to_mac"' , ":" , String ;(* MAC do dispositivo do responsável *)
+TaskStatusProp     = '"status"' , ":" , TaskStatusValue ;(* Estado atual de execução *)
+CreatedAtProp      = '"created_at"' , ":" , Date ;       (* Carimbo de data/hora de criação *)
+AssignedToNameProp = '"assigned_to_name"' , ":" , String;(* Nome do responsável atribuído *)
+AssignedToRoleProp = '"assigned_to_role"' , ":" , String;(* Cargo do responsável atribuído *)
+TaskStatusValue    = '"pending"' | '"in_progress"' | '"completed"' ;
+
+(* Estrutura de Documento OKF *)
+Document = "{" , PathProp , "," , TitleProp , "," , DescriptionProp , "," , TagsProp , "," , AuthorNameProp , "," , AuthorRoleProp , "," , SourceFileProp , "," , UploadedByMacProp , "," , UploadedAtProp , "}" ;
+PathProp          = '"path"' , ":" , String ;            (* Caminho de persistência no OKF *)
+TagsProp          = '"tags"' , ":" , "[" , { String , [ "," ] } , "]" ; (* Marcadores categóricos gerados *)
+AuthorNameProp    = '"author_name"' , ":" , String ;     (* Nome do operador que realizou o upload *)
+AuthorRoleProp    = '"author_role"' , ":" , String ;     (* Cargo do operador autor *)
+SourceFileProp    = '"source_file"' , ":" , String ;     (* Nome original do arquivo técnico enviado *)
+UploadedByMacProp = '"uploaded_by_mac"' , ":" , String ; (* MAC do dispositivo que efetuou o upload *)
+UploadedAtProp    = '"uploaded_at"' , ":" , Date ;       (* Carimbo de data/hora do processamento *)</code></pre>
+
+      <div class="footer">
+        <span>Engenharia &bull; Estrutura de Dados</span>
+        <span>Folha 02</span>
+      </div>
+    </div>
+
+    <!-- SHEET 3: GRAMÁTICA DE FUNCIONAMENTO (SERVIÇOS E API) -->
+    <div class="sheet">
+      <div class="print-safe"></div>
+      
+      <div class="brand">
+        <div class="logo-fallback">M</div>
+        <div>
+          <span class="kicker">Rotinas & Interfaces</span>
+          <h1>Gramática de Funcionamento - EBNF</h1>
+        </div>
+      </div>
+
+      <h2>Assinaturas de Serviços & Contratos REST</h2>
+      <p>As rotinas lógicas executadas pelos serviços em Node.js e as interfaces HTTP expostas estão mapeadas abaixo:</p>
+
+      <h3>Funções dos Serviços Internos (Lógica do Servidor)</h3>
+      <pre><code>(* Operações do Banco de Dados (Serviço DB) *)
+CreateUser             = "createUser(mac: String, ip: String, name: String, role: String, sector: String) -> User" ;
+GetUserByMac           = "getUserByMac(mac: String) -> User | null" ;
+GetUserByIp            = "getUserByIp(ip: String) -> User | null" ;
+GetUserByUsername      = "getUserByUsername(username: String) -> User | null" ;
+ListUsers              = "listUsers() -> Array of User" ;
+UpdateUserIp           = "updateUserIp(mac: String, ip: String) -> void" ;
+CreatePermission       = "createPermissionRequest(requesterMac: String, targetUsername: String) -> void" ;
+CheckPermission        = "checkPermission(requesterMac: String, targetUsername: String) -> Permission | null" ;
+ListPendingPermissions = "listPendingPermissions() -> Array of Permission" ;
+ListAllPermissions     = "listAllPermissions() -> Array of Permission" ;
+UpdatePermission       = "updatePermissionStatus(id: Integer, status: StatusValue) -> void" ;
+CreateTask             = "createTask(title: String, description: String, assignedToMac: String) -> void" ;
+ListTasks              = "listTasks() -> Array of Task" ;
+UpdateTask             = "updateTaskStatus(id: Integer, status: TaskStatusValue) -> void" ;
+CreateDocument         = "createDocument(path: String, title: String, description: String, tags: Array of String, authorName: String, authorRole: String, sourceFile: String, uploadedByMac: String) -> void" ;
+ListDocuments          = "listDocuments() -> Array of Document" ;
+
+(* Operações de Inteligência Artificial e Pipeline *)
+StandardizeDocument    = "standardizeDocument(text: String, fileName: String, author: User) -> { markdown: String, title: String, description: String, tags: Array of String }" ;
+AskEngineeringChat     = "askEngineeringChat(question: String, contextDocs: Array of Document, user: User) -> String" ;
+ProcessFile            = "processFile(rawFilePath: String, fileName: String) -> { success: Boolean, [ document: Document | error: String ] }" ;
+RebuildManifest        = "rebuildManifest() -> void" ;</code></pre>
+
+      <h3>Contratos de Endpoints REST (API HTTP)</h3>
+      <pre><code>(* Contratos de Entrada/Saída HTTP *)
+GetMe               = "GET /api/user/me -> User | { registered: false, ip: String, mac: String }" ;
+RegisterUser        = "POST /api/user/register { name: String, role: String, sector: String } -> { success: true, user: User }" ;
+ListUsers           = "GET /api/user/list -> Array of User" ;
+RequestPermission   = "POST /api/permissions/request { targetUsername: String } -> { success: true, message: String }" ;
+RespondPermission   = "POST /api/permissions/respond { id: Integer, status: StatusValue } -> { success: true }" ;
+ListPendingPerms    = "GET /api/permissions/pending -> Array of Permission" ;
+ListAllPerms        = "GET /api/permissions/list -> Array of Permission" ;
+CreateTaskRoute     = "POST /api/tasks/create { title: String, description: String, assignedToMac: String } -> { success: true }" ;
+ListTasksRoute      = "GET /api/tasks/list -> Array of Task" ;
+UpdateTaskRoute     = "POST /api/tasks/update { id: Integer, status: TaskStatusValue } -> { success: true }" ;
+AskChat             = "POST /api/chat/ask { question: String } -> { response: String }" ;
+ListDocs            = "GET /api/documents/list -> Array of Document" ;</code></pre>
+
+      <div class="footer">
+        <span>Engenharia &bull; Comportamento Lógico</span>
+        <span>Folha 03</span>
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

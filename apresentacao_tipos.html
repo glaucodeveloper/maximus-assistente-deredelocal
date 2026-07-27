@@ -1,0 +1,676 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <title>Apresentação Executiva - Servidor Engenharia</title>
+  <style>
+    :root {
+      --blue: #0A61D8;         /* Primary brand color */
+      --blue-dark: #173A6A;    /* Dark headers & titles */
+      --blue-soft: #EAF3FF;    /* Accent background for badges/kickers */
+      --text: #16233B;         /* Body copy text */
+      --muted: #63748C;        /* Secondary/muted text */
+      --border: #D9E3EF;       /* Borders, table lines */
+      --bg: #F4F7FB;           /* Global window background */
+      --card: #FFFFFF;         /* White containers/sheets */
+      --warn: #FFF8EA;         /* Warning/Notice background */
+      --warn-border: #F7DBA8;  /* Warning border */
+      --ok: #136F4A;           /* Success indicator */
+    }
+
+    @page {
+      size: A4 landscape;
+      margin: 10mm;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: 'Segoe UI', Arial, Helvetica, sans-serif;
+      font-size: 13px;
+      line-height: 1.5;
+      background: var(--bg);
+      color: var(--text);
+    }
+
+    .print-toolbar {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      display: flex;
+      gap: 15px;
+      align-items: center;
+      justify-content: center;
+      padding: 12px;
+      background: #0f172a;
+      color: white;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+    }
+
+    .print-toolbar span {
+      font-weight: 600;
+    }
+
+    .print-toolbar button {
+      background: var(--blue);
+      color: white;
+      border: none;
+      border-radius: 6px;
+      padding: 8px 16px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: background 0.2s;
+    }
+
+    .print-toolbar button:hover {
+      background: #0952b6;
+    }
+
+    .document {
+      max-width: 275mm;
+      margin: 0 auto;
+      padding: 10mm 0;
+    }
+
+    .sheet {
+      background: var(--card);
+      border: 1px solid var(--border);
+      margin-bottom: 12mm;
+      padding: 12mm;
+      border-radius: 12px;
+      position: relative;
+      height: 190mm;
+      display: flex;
+      flex-direction: column;
+      justify-content: space-between;
+      page-break-inside: avoid;
+      break-inside: avoid;
+      box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    }
+
+    .sheet.cover {
+      justify-content: center;
+      align-items: center;
+      text-align: center;
+      background: linear-gradient(135deg, #ffffff 0%, #f0f6ff 100%);
+    }
+
+    .print-safe {
+      position: absolute;
+      inset: 6mm;
+      border: 1px dashed #E7EDF5;
+      border-radius: 8px;
+      pointer-events: none;
+    }
+
+    /* Cabeçalho de Slide */
+    .slide-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      border-bottom: 2px solid var(--blue-soft);
+      padding-bottom: 4mm;
+      margin-bottom: 6mm;
+    }
+
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .logo-fallback {
+      background: var(--blue);
+      color: white;
+      font-weight: 900;
+      font-size: 20px;
+      width: 40px;
+      height: 40px;
+      border-radius: 8px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      box-shadow: 0 2px 4px rgba(10,97,216,0.3);
+    }
+
+    .kicker {
+      font-size: 11px;
+      font-weight: 800;
+      text-transform: uppercase;
+      letter-spacing: 1.5px;
+      color: var(--blue);
+      display: block;
+      margin-bottom: 2px;
+    }
+
+    h2 {
+      color: var(--blue-dark);
+      font-size: 20px;
+      font-weight: 700;
+    }
+
+    .slide-number {
+      font-size: 12px;
+      font-weight: 700;
+      color: var(--muted);
+      background: var(--blue-soft);
+      padding: 4px 10px;
+      border-radius: 20px;
+    }
+
+    /* Conteúdo dos Slides */
+    .slide-body {
+      flex-grow: 1;
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+    }
+
+    /* Grid Layouts */
+    .grid-2 {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 8mm;
+    }
+
+    .grid-3 {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 6mm;
+    }
+
+    .grid-4 {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 5mm;
+    }
+
+    /* Componentes Visuais */
+    .card-visual {
+      background: #fafbfc;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 6mm;
+      transition: transform 0.2s, box-shadow 0.2s;
+      position: relative;
+    }
+
+    .card-visual:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 4px 10px rgba(0,0,0,0.05);
+      border-color: var(--blue);
+    }
+
+    .card-title {
+      font-size: 14px;
+      font-weight: 700;
+      color: var(--blue-dark);
+      margin-bottom: 3mm;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+
+    .card-icon {
+      width: 24px;
+      height: 24px;
+      border-radius: 6px;
+      background: var(--blue-soft);
+      color: var(--blue);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      font-weight: 700;
+    }
+
+    .card-desc {
+      color: var(--muted);
+      font-size: 12px;
+      margin-bottom: 4mm;
+    }
+
+    .badge-group {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px;
+    }
+
+    .badge {
+      font-size: 10px;
+      font-weight: 700;
+      padding: 3px 8px;
+      border-radius: 4px;
+      background: #e2e8f0;
+      color: #475569;
+      text-transform: uppercase;
+    }
+
+    .badge.primary {
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+
+    .badge.success {
+      background: #e6f4ea;
+      color: var(--ok);
+    }
+
+    /* Fluxos e Setas Visuais */
+    .flow-container {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 4mm;
+    }
+
+    .flow-step {
+      flex: 1;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      padding: 5mm;
+      text-align: center;
+      box-shadow: 0 2px 6px rgba(0,0,0,0.02);
+    }
+
+    .flow-arrow {
+      font-size: 24px;
+      color: var(--blue);
+      font-weight: bold;
+    }
+
+    /* Rodapé do Slide */
+    .slide-footer {
+      border-top: 1px solid var(--border);
+      padding-top: 4mm;
+      margin-top: 6mm;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .footer-right {
+      font-weight: 700;
+      color: var(--blue-dark);
+    }
+
+    /* Capa Personalizada */
+    .cover h1 {
+      font-size: 36px;
+      color: var(--blue-dark);
+      font-weight: 800;
+      margin-bottom: 4mm;
+      letter-spacing: -0.5px;
+    }
+
+    .cover p {
+      font-size: 16px;
+      color: var(--muted);
+      max-width: 160mm;
+      margin: 0 auto 8mm;
+    }
+
+    .cover-badge {
+      display: inline-block;
+      background: var(--blue-soft);
+      color: var(--blue);
+      font-weight: 700;
+      padding: 6px 16px;
+      border-radius: 30px;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 1px;
+      margin-bottom: 6mm;
+    }
+
+    /* Indicador Visual de Acesso */
+    .access-grid {
+      display: grid;
+      grid-template-columns: 2fr 1fr 2fr;
+      align-items: center;
+      gap: 10px;
+    }
+
+    .folder-box {
+      border: 2px dashed var(--border);
+      border-radius: 10px;
+      padding: 5mm;
+      text-align: center;
+      background: #fafbfc;
+    }
+
+    .folder-box.active {
+      border-color: var(--blue);
+      background: var(--blue-soft);
+    }
+
+    .status-indicator {
+      display: inline-block;
+      width: 10px;
+      height: 10px;
+      border-radius: 50%;
+      background: #cbd5e1;
+    }
+
+    .status-indicator.green {
+      background: var(--ok);
+    }
+
+    .status-indicator.orange {
+      background: #f59e0b;
+    }
+
+    @media print {
+      .print-toolbar {
+        display: none;
+      }
+      body {
+        background: #fff;
+      }
+      .sheet {
+        border: none;
+        box-shadow: none;
+        padding: 0;
+        margin: 0;
+        page-break-after: always;
+        break-after: page;
+        height: 100%;
+      }
+    }
+  </style>
+</head>
+<body>
+
+  <!-- Barra de Ferramentas de Impressão -->
+  <div class="print-toolbar">
+    <span>Visualização de Apresentação A4 (Modo Paisagem)</span>
+    <button onclick="window.print()">Imprimir / Salvar PDF</button>
+  </div>
+
+  <div class="document">
+
+    <!-- SLIDE 1: CAPA -->
+    <div class="sheet cover">
+      <div class="print-safe"></div>
+      <div class="cover-badge">Arquitetura de Sistemas & Conhecimento</div>
+      <h1>Servidor de Engenharia</h1>
+      <p>Gerenciamento inteligente de arquivos, cadastro seguro de operadores e base unificada de conhecimento técnico via Inteligência Artificial.</p>
+      <div style="font-size: 11px; color: var(--muted); margin-top: 10px;">
+        Maximus Tecnologia &bull; Documento de Diretrizes Visuais
+      </div>
+    </div>
+
+    <!-- SLIDE 2: OPERADORES E DISPOSITIVOS -->
+    <div class="sheet">
+      <div class="print-safe"></div>
+      <div class="slide-header">
+        <div class="brand">
+          <div class="logo-fallback">M</div>
+          <div>
+            <span class="kicker">Mapeamento de Equipes</span>
+            <h2>Operadores & Cadastro de Dispositivos</h2>
+          </div>
+        </div>
+        <div class="slide-number">01 / 04</div>
+      </div>
+
+      <div class="slide-body">
+        <p style="margin-bottom: 6mm; color: var(--muted); font-size: 13px;">
+          Cada profissional na rede local é identificado pelo seu dispositivo, garantindo rastreabilidade total nas ações de projeto e de campo.
+        </p>
+        <div class="grid-3">
+          <div class="card-visual">
+            <div class="card-title">
+              <span class="card-icon">1</span>
+              Identificação Física
+            </div>
+            <div class="card-desc">O dispositivo é detectado automaticamente na rede local através de sua assinatura física exclusiva e endereço de rede atualizado.</div>
+            <div class="badge-group">
+              <span class="badge primary">Endereço de Rede</span>
+              <span class="badge">Assinatura Física</span>
+            </div>
+          </div>
+
+          <div class="card-visual">
+            <div class="card-title">
+              <span class="card-icon">2</span>
+              Perfil Profissional
+            </div>
+            <div class="card-desc">No cadastro, o profissional vincula seu dispositivo ao seu nome, cargo técnico e setor de engenharia correspondente.</div>
+            <div class="badge-group">
+              <span class="badge primary">Cargo Técnico</span>
+              <span class="badge">Setor Ativo</span>
+            </div>
+          </div>
+
+          <div class="card-visual">
+            <div class="card-title">
+              <span class="card-icon">3</span>
+              Páginas Privadas
+            </div>
+            <div class="card-desc">Ao concluir o cadastro, o sistema reserva automaticamente um diretório individual seguro para o profissional enviar seus arquivos.</div>
+            <div class="badge-group">
+              <span class="badge success">Pronto para Uso</span>
+              <span class="badge">Pasta Reservada</span>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slide-footer">
+        <span>Maximus Engenharia &bull; Painel de Controle de Acesso</span>
+        <span class="footer-right">MAXIMUS</span>
+      </div>
+    </div>
+
+    <!-- SLIDE 3: SEGURANÇA FTP E PERMISSÕES -->
+    <div class="sheet">
+      <div class="print-safe"></div>
+      <div class="slide-header">
+        <div class="brand">
+          <div class="logo-fallback">M</div>
+          <div>
+            <span class="kicker">Fluxo de Arquivos</span>
+            <h2>Segurança de Transmissão & Permissões</h2>
+          </div>
+        </div>
+        <div class="slide-number">02 / 04</div>
+      </div>
+
+      <div class="slide-body">
+        <p style="margin-bottom: 6mm; color: var(--muted); font-size: 13px;">
+          Garante que profissionais compartilhem arquivos de forma segura, impedindo que dados de um setor sejam sobrescritos sem aprovação direta.
+        </p>
+        
+        <div class="access-grid">
+          <div class="folder-box active">
+            <h4 style="color: var(--blue-dark); margin-bottom: 2px;">Diretório de Uploads</h4>
+            <p style="font-size: 11px; color: var(--muted); margin-bottom: 10px;">Enviando para a própria pasta</p>
+            <div style="display: flex; justify-content: center; align-items: center; gap: 8px;">
+              <span class="status-indicator green"></span>
+              <span class="badge primary">Acesso Permitido</span>
+            </div>
+          </div>
+
+          <div style="text-align: center;">
+            <div style="font-size: 32px; color: var(--blue);">⇄</div>
+            <span style="font-size: 10px; font-weight: 700; text-transform: uppercase; color: var(--muted);">Segurança</span>
+          </div>
+
+          <div class="folder-box">
+            <h4 style="color: var(--blue-dark); margin-bottom: 2px;">Pasta de Outro Usuário</h4>
+            <p style="font-size: 11px; color: var(--muted); margin-bottom: 10px;">Necessita de gravação externa</p>
+            <div style="display: flex; justify-content: center; align-items: center; gap: 8px;">
+              <span class="status-indicator orange"></span>
+              <span class="badge" style="background: var(--warn); color: #d97706;">Requer Autorização</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="grid-3" style="margin-top: 6mm;">
+          <div class="card-visual">
+            <div class="card-title">Lógica de Bloqueio</div>
+            <div class="card-desc">Qualquer usuário pode ler e baixar arquivos de todas as pastas, mas a escrita na pasta alheia é bloqueada por padrão.</div>
+          </div>
+          <div class="card-visual">
+            <div class="card-title">Solicitação Rápida</div>
+            <div class="card-desc">Ao tentar enviar para um colega, o sistema cria um pedido de autorização em tempo real na tela do proprietário.</div>
+          </div>
+          <div class="card-visual">
+            <div class="card-title">Notificação Ativa</div>
+            <div class="card-desc">O dono da pasta decide se aprova ou rejeita o pedido através de um clique rápido em sua interface web de gestão.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slide-footer">
+        <span>Maximus Engenharia &bull; Segurança de Transmissão de Dados</span>
+        <span class="footer-right">MAXIMUS</span>
+      </div>
+    </div>
+
+    <!-- SLIDE 4: PIPELINE DE INTELIGÊNCIA ARTIFICIAL -->
+    <div class="sheet">
+      <div class="print-safe"></div>
+      <div class="slide-header">
+        <div class="brand">
+          <div class="logo-fallback">M</div>
+          <div>
+            <span class="kicker">Processamento Automatizado</span>
+            <h2>Pipeline de Organização & Inteligência Artificial</h2>
+          </div>
+        </div>
+        <div class="slide-number">03 / 04</div>
+      </div>
+
+      <div class="slide-body">
+        <p style="margin-bottom: 6mm; color: var(--muted); font-size: 13px;">
+          Fluxo de entrada que transforma arquivos desestruturados enviados pela equipe em conhecimento catalogado e legível por Inteligência Artificial.
+        </p>
+
+        <div class="flow-container">
+          <div class="flow-step">
+            <div style="font-size: 18px; margin-bottom: 2px;">📥</div>
+            <h4 style="color: var(--blue-dark); font-size: 12px; margin-bottom: 2px;">1. Entrada do Arquivo</h4>
+            <p style="font-size: 11px; color: var(--muted);">PDF ou texto é enviado para a pasta segura.</p>
+          </div>
+
+          <div class="flow-arrow">➔</div>
+
+          <div class="flow-step">
+            <div style="font-size: 18px; margin-bottom: 2px;">🔍</div>
+            <h4 style="color: var(--blue-dark); font-size: 12px; margin-bottom: 2px;">2. Extração de Conteúdo</h4>
+            <p style="font-size: 11px; color: var(--muted);">O sistema lê e interpreta o texto interno do arquivo.</p>
+          </div>
+
+          <div class="flow-arrow">➔</div>
+
+          <div class="flow-step">
+            <div style="font-size: 18px; margin-bottom: 2px;">🤖</div>
+            <h4 style="color: var(--blue-dark); font-size: 12px; margin-bottom: 2px;">3. Padronização por IA</h4>
+            <p style="font-size: 11px; color: var(--muted);">A IA estrutura o texto em categorias, títulos e resumos.</p>
+          </div>
+
+          <div class="flow-arrow">➔</div>
+
+          <div class="flow-step" style="background: var(--blue-soft); border-color: var(--blue);">
+            <div style="font-size: 18px; margin-bottom: 2px;">🗃️</div>
+            <h4 style="color: var(--blue-dark); font-size: 12px; margin-bottom: 2px;">4. Base de Conhecimento</h4>
+            <p style="font-size: 11px; color: var(--muted);">Salvo na biblioteca unificada de engenharia.</p>
+          </div>
+        </div>
+
+        <div class="grid-2" style="margin-top: 6mm;">
+          <div class="card-visual">
+            <div class="card-title">Indexação Inteligente</div>
+            <div class="card-desc">A IA extrai automaticamente o título técnico real, gera um resumo executivo de uma frase e classifica com marcadores de relevância temática.</div>
+          </div>
+          <div class="card-visual">
+            <div class="card-title">Armazenamento Seguro</div>
+            <div class="card-desc">Os arquivos originais brutos são guardados em uma área de segurança e o manifesto central de arquivos é atualizado para consultas rápidas.</div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slide-footer">
+        <span>Maximus Engenharia &bull; Pipeline de Conhecimento</span>
+        <span class="footer-right">MAXIMUS</span>
+      </div>
+    </div>
+
+    <!-- SLIDE 5: PAINEL DE TAREFAS E CHAT INTELIGENTE -->
+    <div class="sheet">
+      <div class="print-safe"></div>
+      <div class="slide-header">
+        <div class="brand">
+          <div class="logo-fallback">M</div>
+          <div>
+            <span class="kicker">Aplicações Finais</span>
+            <h2>Gestão de Tarefas & Chat de Inteligência Artificial</h2>
+          </div>
+        </div>
+        <div class="slide-number">04 / 04</div>
+      </div>
+
+      <div class="slide-body">
+        <p style="margin-bottom: 6mm; color: var(--muted); font-size: 13px;">
+          As duas principais formas de interação dos profissionais no sistema: acompanhamento de metas diárias e busca inteligente de informações técnicas.
+        </p>
+
+        <div class="grid-2">
+          <div class="card-visual" style="border-left: 4px solid var(--blue);">
+            <div class="card-title" style="font-size: 15px;">
+              📋 Central de Atividades & Metas
+            </div>
+            <p style="font-size: 12px; color: var(--muted); margin-bottom: 4mm;">
+              Permite criar, delegar e rastrear o progresso de tarefas técnicas específicas de engenharia direto pela interface unificada.
+            </p>
+            <div style="display: flex; flex-direction: column; gap: 8px;">
+              <div style="display: flex; justify-content: space-between; font-size: 11px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">
+                <span>Planejamento de Metas Técnicas</span>
+                <span class="badge primary">Pendente</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 11px; border-bottom: 1px solid var(--border); padding-bottom: 4px;">
+                <span>Execução de Levantamento Civil</span>
+                <span class="badge" style="background: #fef3c7; color: #b45309;">Em Andamento</span>
+              </div>
+              <div style="display: flex; justify-content: space-between; font-size: 11px;">
+                <span>Validação Estrutural da Fundação</span>
+                <span class="badge success">Concluída</span>
+              </div>
+            </div>
+          </div>
+
+          <div class="card-visual" style="border-left: 4px solid var(--ok);">
+            <div class="card-title" style="font-size: 15px;">
+              💬 Assistente de Conhecimento Técnico
+            </div>
+            <p style="font-size: 12px; color: var(--muted); margin-bottom: 4mm;">
+              Um canal de perguntas e respostas integrado. A IA consulta a base de arquivos técnicos padronizados para tirar dúvidas sem que você precise ler manuais extensos.
+            </p>
+            <div style="background: #fafbfc; border: 1px solid var(--border); padding: 3mm; border-radius: 6px; font-size: 11px;">
+              <p style="font-weight: 700; color: var(--blue-dark); margin-bottom: 1mm;">Pergunta do Engenheiro:</p>
+              <p style="color: var(--muted); margin-bottom: 2mm;">"Qual o traço de concreto homologado para as sapatas do bloco B?"</p>
+              <p style="font-weight: 700; color: var(--ok); margin-bottom: 1mm;">Resposta do Assistente:</p>
+              <p style="color: var(--text);">"De acordo com a revisão estrutural de Maria Silva, o concreto homologado é Fck 30MPa com adição de impermeabilizante..."</p>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="slide-footer">
+        <span>Maximus Engenharia &bull; Aplicações Integradas</span>
+        <span class="footer-right">MAXIMUS</span>
+      </div>
+    </div>
+
+  </div>
+
+</body>
+</html>

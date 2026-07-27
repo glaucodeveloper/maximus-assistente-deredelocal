@@ -7,3 +7,9 @@ public/wasm/
 *.pem
 *.key
 secrets.*
+.cache/
+*.p12
+*.pfx
+*.log
+auditoria-maximus-*.txt
+server.js.before-*

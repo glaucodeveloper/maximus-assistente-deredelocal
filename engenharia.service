@@ -1,0 +1,21 @@
+[Unit]
+Description=Servidor Engenharia - RAG, Web & FTP OKF
+After=network-online.target llama-server.service
+Wants=network-online.target
+Requires=llama-server.service
+
+[Service]
+Type=simple
+User=icarogdo
+WorkingDirectory=/home/icarogdo/dev/engenharia
+ExecStart=/usr/bin/node server.js
+Restart=on-failure
+RestartSec=3
+Environment=NODE_ENV=production
+Environment=PORT=3001
+Environment=FTP_PORT=2122
+Environment=LLAMA_BASE_URL=http://127.0.0.1:1223/v1
+Environment=LLAMA_MODEL=google/gemma-4-e4b
+
+[Install]
+WantedBy=default.target
