@@ -1,11 +1,11 @@
 const MODEL_ID = "onnx-community/gemma-3-1b-it-ONNX";
 const ORT_WASM_BASE = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0-dev.20260416-b7804b056c/dist/";
-const MODEL_DTYPE = "uint8";
+const MODEL_DTYPE = "q4";
 const MODEL_DEVICE = "wasm";
 const MODEL_REVISION =
-  "9909734e10b2001ee7de4a1ca33c9cfbe66ad30b";
+  "a58439f40017d3b99c7d378ff525e54e0ba08ebf";
 const CACHE_KEY =
-  "maximus-engenharia-gemma3-uint8-9909734-v2-cache";
+  "maximus-engenharia-gemma3-q4-a58439f-v1-cache";
 const TASK = "text-generation";
 
 const MODEL_OPTIONS = Object.freeze({
@@ -124,6 +124,7 @@ async function clearLegacyCaches() {
     "maximus-engenharia-gemma3-cache",
     "maximus-engenharia-gemma3-int8-cache",
     "maximus-engenharia-gemma3-uint8-9909734-cache",
+    "maximus-engenharia-gemma3-uint8-9909734-v2-cache",
   ].map(key => caches.delete(key).catch(() => false)));
 
   legacyCachesCleared = true;

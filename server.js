@@ -387,7 +387,7 @@ app.get("/api/documents/*", (req, res) => {
 });
 
 app.post("/api/chat", async (req, res) => {
-  const question = String(req.body?.question || "").trim().slice(0, 4000);
+  const question = String(req.body?.question || "").trim().slice(0, 2000);
   if (!question) {
     return res.status(400).json({ error: "A pergunta é obrigatória." });
   }
@@ -417,11 +417,11 @@ app.post("/api/chat", async (req, res) => {
       ranked.some(item => item.score > 0)
         ? ranked.filter(item => item.score > 0)
         : ranked
-    ).slice(0, 5).map(({ doc }) => {
+    ).slice(0, 2).map(({ doc }) => {
       const fullPath = resolve(OKF_ROOT, doc.path);
       const content =
         isInside(KNOWLEDGE_ROOT, fullPath) && existsSync(fullPath)
-          ? readFileSync(fullPath, "utf8").slice(0, 7000)
+          ? readFileSync(fullPath, "utf8").slice(0, 2600)
           : "";
       return { ...doc, content };
     });
@@ -434,7 +434,7 @@ app.post("/api/chat", async (req, res) => {
         doc.content,
       ].join("\n"))
       .join("\n\n---\n\n")
-      .slice(0, 24000);
+      .slice(0, 6000);
 
     const systemPrompt = `Você é o Assistente Local de Engenharia.
 Responda em português brasileiro, com precisão técnica e linguagem clara.

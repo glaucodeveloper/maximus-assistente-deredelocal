@@ -312,7 +312,7 @@ function* AppGenerator({ id }) {
 
       const generated = await generateTransformersText(
         result.messages,
-        { maxNewTokens: 256 }
+        { maxNewTokens: 96 }
       );
 
       const aiMsg = {
@@ -345,7 +345,11 @@ function* AppGenerator({ id }) {
   };
 
   this.updateChatInput = (text) => {
-    this.next({ chatInputText: text });
+    /*
+     * Mantém o valor sem renderizar novamente o formulário. Uma
+     * renderização no blur removia o botão antes do evento click.
+     */
+    this.state.chatInputText = text;
   };
 
   this.requestPermission = async (targetFolder) => {
@@ -610,13 +614,13 @@ function* AppGenerator({ id }) {
                   </div>
                   <div>
                     <h2 class="text-lg font-bold text-slate-900">Inteligência local</h2>
-                    <p class="text-xs text-slate-500">Gemma 3 1B · CPU/WebAssembly</p>
+                    <p class="text-xs text-slate-500">Gemma 3 1B Q4 · CPU/WebAssembly</p>
                   </div>
                 </div>
 
                 <p class="text-xs leading-relaxed text-slate-600 mb-5">
                   O modelo é baixado uma vez neste navegador, armazenado em cache
-                  persistente e executado localmente. Tamanho aproximado: 1,05 GB.
+                  persistente e executado localmente. Versão Q4 otimizada, com aproximadamente 900 MB.
                 </p>
 
                 <div class="h-3 rounded-full bg-slate-200 overflow-hidden mb-2">
@@ -802,8 +806,8 @@ function* AppGenerator({ id }) {
                   </div>
 
                   <!-- Chat Form -->
-                  <form onsubmit="event.preventDefault(); document.getElementById('${this.id}').component.submitChat(document.getElementById('chat-input-text').value)" class="p-4 border-t border-slate-100 flex gap-3 shrink-0 bg-slate-50/50">
-                    <input id="chat-input-text" type="text" autocomplete="off" placeholder="Faça uma pergunta técnica técnica sobre as especificações..." value="${s.chatInputText}" onblur="document.getElementById('${this.id}').component.updateChatInput(this.value)" class="flex-1 px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs text-slate-700 bg-white">
+                  <form id="chat-submit-form" onsubmit="event.preventDefault(); const input = this.elements.namedItem('question'); document.getElementById('${this.id}').component.submitChat(input ? input.value : '')" class="p-4 border-t border-slate-100 flex gap-3 shrink-0 bg-slate-50/50">
+                    <input id="chat-input-text" name="question" type="text" autocomplete="off" placeholder="Faça uma pergunta técnica sobre as especificações..." value="${s.chatInputText}" oninput="document.getElementById('${this.id}').component.updateChatInput(this.value)" class="flex-1 px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs text-slate-700 bg-white">
                     <button type="submit" class="bg-blue-600 hover:bg-blue-700 text-white px-5 rounded-xl transition duration-200 shadow-md flex items-center justify-center gap-1 text-xs font-semibold">
                       Enviar <i data-lucide="send" class="w-3.5 h-3.5"></i>
                     </button>

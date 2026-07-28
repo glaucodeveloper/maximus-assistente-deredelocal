@@ -1,11 +1,11 @@
 export const TRANSFORMERS_MODEL = Object.freeze({
   id: "onnx-community/gemma-3-1b-it-ONNX",
-  dtype: "uint8",
+  dtype: "q4",
   device: "wasm",
-  revision: "9909734e10b2001ee7de4a1ca33c9cfbe66ad30b",
-  cacheKey: "maximus-engenharia-gemma3-uint8-9909734-v2-cache",
-  markerKey: "maximus.engenharia.gemma3.uint8.9909734.v2.complete",
-  approximateBytes: 1_050_000_000,
+  revision: "a58439f40017d3b99c7d378ff525e54e0ba08ebf",
+  cacheKey: "maximus-engenharia-gemma3-q4-a58439f-v1-cache",
+  markerKey: "maximus.engenharia.gemma3.q4.a58439f.v1.complete",
+  approximateBytes: 900_000_000,
 });
 
 const ORT_WASM_BASE = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0-dev.20260416-b7804b056c/dist/";
@@ -37,6 +37,46 @@ function extractAssistantText(output) {
   throw new Error("O modelo não produziu uma resposta reconhecível.");
 }
 
+
+function isMemoryError(error) {
+  return /bad_alloc|OrtRun|ERROR_CODE:\s*6|out of memory|memory access/i
+    .test(String(error?.message || error || ""));
+}
+
+function createMemoryError(error) {
+  const cause = String(error?.message || error || "memória insuficiente");
+
+  return new Error(
+    "A memória disponível no navegador não foi suficiente para concluir " +
+    "esta resposta. O modelo foi interrompido para liberar memória. " +
+    "Recarregue a página e tente uma pergunta mais curta. " +
+    `Detalhe técnico: ${cause}`,
+  );
+}
+
+async function clearLegacyModelCaches() {
+  if (!("caches" in globalThis)) return;
+
+  const oldCacheKeys = [
+    "maximus-engenharia-gemma3-cache",
+    "maximus-engenharia-gemma3-int8-cache",
+    "maximus-engenharia-gemma3-uint8-9909734-cache",
+    "maximus-engenharia-gemma3-uint8-9909734-v2-cache",
+  ];
+
+  await Promise.all(
+    oldCacheKeys.map(key => caches.delete(key).catch(() => false)),
+  );
+
+  for (const key of [
+    "maximus.engenharia.gemma3.q4.complete",
+    "maximus.engenharia.gemma3.int8.complete",
+    "maximus.engenharia.gemma3.uint8.9909734.complete",
+    "maximus.engenharia.gemma3.uint8.9909734.v2.complete",
+  ]) {
+    localStorage.removeItem(key);
+  }
+}
 
 class WorkerClient {
   constructor() {
@@ -389,6 +429,7 @@ export async function prepareTransformersModel({
   }
 
   await navigator.storage?.persist?.();
+  await clearLegacyModelCaches();
 
   const tracker = createProgressTracker(onProgress);
 
@@ -432,7 +473,7 @@ export async function generateTransformersText(
     await prepareTransformersModel();
   }
 
-  const maxTokens = Math.max(64, Math.min(384, maxNewTokens));
+  const maxTokens = Math.max(32, Math.min(128, maxNewTokens));
 
   if (activeMode === "worker") {
     const activeClient = getClient({ recreateFailed: true });
@@ -440,16 +481,21 @@ export async function generateTransformersText(
     try {
       return await activeClient.generate(messages, maxTokens);
     } catch (error) {
-      console.warn(
-        "[Modelo] Inferência no worker falhou; usando modo compatível:",
-        error,
-      );
-
       activeClient.failAll?.(error);
 
       if (client === activeClient) {
         client = null;
       }
+
+      if (isMemoryError(error)) {
+        activeMode = null;
+        throw createMemoryError(error);
+      }
+
+      console.warn(
+        "[Modelo] Inferência no worker falhou; usando modo compatível:",
+        error,
+      );
 
       activeMode = "main";
     }
@@ -458,12 +504,31 @@ export async function generateTransformersText(
   const tracker = () => {};
   const pipe = await ensureMainGenerator(tracker);
 
-  const output = await pipe(messages, {
-    max_new_tokens: maxTokens,
-    do_sample: false,
-    repetition_penalty: 1.08,
-    return_full_text: true,
-  });
+  let output;
+
+  try {
+    output = await pipe(messages, {
+      max_new_tokens: maxTokens,
+      do_sample: false,
+      repetition_penalty: 1.08,
+      return_full_text: true,
+    });
+  } catch (error) {
+    if (isMemoryError(error)) {
+      if (mainGenerator?.dispose) {
+        await mainGenerator.dispose().catch(() => {});
+      }
+
+      mainGenerator = null;
+      mainGeneratorPromise = null;
+      mainModulePromise = null;
+      activeMode = null;
+
+      throw createMemoryError(error);
+    }
+
+    throw error;
+  }
 
   writeCompleteMarker("main");
 
