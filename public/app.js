@@ -1,3 +1,9 @@
+import {
+  ensureApplicationSetup,
+} from "../src/client/setup-bootstrap.js";
+
+await ensureApplicationSetup();
+
 // AUTENTICAÇÃO LOCAL: token de acesso vinculado ao endereço da máquina
 const DEVICE_TOKEN_KEY = "engenharia.device.access-token";
 const nativeFetch = window.fetch.bind(window);
