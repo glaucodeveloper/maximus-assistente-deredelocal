@@ -1,3 +1,9 @@
+import {
+  generateTransformersText,
+  hasCompleteMarker,
+  prepareTransformersModel,
+} from "../src/client/transformers-runtime.js";
+
 // AUTENTICAÇÃO LOCAL: token de acesso vinculado ao endereço da máquina
 const DEVICE_TOKEN_KEY = "engenharia.device.access-token";
 const nativeFetch = window.fetch.bind(window);
@@ -46,7 +52,11 @@ function* AppGenerator({ id }) {
     isUploading: false,
     taskTitle: "",
     taskDesc: "",
-    taskAssignedMac: ""
+    taskAssignedMac: "",
+    modelReady: false,
+    modelPreparing: false,
+    modelProgress: 0,
+    modelError: ""
   };
 
   // --- MÉTODOS ASSÍNCRONOS (PADRÃO NÍVEL 7 - DISPARAM PATCH NO RETORNO) ---
@@ -58,6 +68,7 @@ function* AppGenerator({ id }) {
         const user = await res.json();
         this.next({ user });
         this.loadInitialData();
+        this.prepareLocalModel();
         return;
       }
 
@@ -98,6 +109,7 @@ function* AppGenerator({ id }) {
         localStorage.setItem(DEVICE_TOKEN_KEY, data.accessToken);
         this.next({ user: { registered: true, ...data.user } });
         this.loadInitialData();
+        this.prepareLocalModel();
 
         if (data.ftp?.enabled) {
           window.prompt(
@@ -111,6 +123,46 @@ function* AppGenerator({ id }) {
     } catch (e) {
       console.error("Erro ao parear:", e);
       alert("Não foi possível concluir o pareamento.");
+    }
+  };
+
+  this.prepareLocalModel = async () => {
+    if (this.state.modelReady || this.state.modelPreparing) return;
+
+    this.next({
+      modelPreparing: true,
+      modelProgress: 0,
+      modelError: ""
+    });
+
+    try {
+      const cached = await hasCompleteMarker();
+
+      if (!cached) {
+        await prepareTransformersModel({
+          onProgress: progress => {
+            this.next({
+              modelPreparing: true,
+              modelProgress: progress.percent || 0,
+              modelError: ""
+            });
+          }
+        });
+      }
+
+      this.next({
+        modelReady: true,
+        modelPreparing: false,
+        modelProgress: 100,
+        modelError: ""
+      });
+    } catch (error) {
+      console.error("Erro ao preparar inteligência local:", error);
+      this.next({
+        modelReady: false,
+        modelPreparing: false,
+        modelError: error.message || "Falha ao baixar o modelo local."
+      });
     }
   };
 
@@ -195,9 +247,8 @@ function* AppGenerator({ id }) {
   };
 
   this.submitChat = async (question) => {
-    if (!question.trim()) return;
+    if (!question.trim() || this.state.isTyping) return;
 
-    // Adiciona mensagem do usuário e seta carregando da IA
     const userMsg = {
       id: "msg-" + Date.now(),
       sender: "user",
@@ -205,40 +256,66 @@ function* AppGenerator({ id }) {
       text: question
     };
 
+    const priorMessages = this.state.chatMessages;
+
     this.next({
-      chatMessages: [...this.state.chatMessages, userMsg],
+      chatMessages: [...priorMessages, userMsg],
       chatInputText: "",
       isTyping: true
     });
 
     try {
+      if (!this.state.modelReady) {
+        await this.prepareLocalModel();
+      }
+
+      if (!this.state.modelReady) {
+        throw new Error(
+          this.state.modelError ||
+          "A inteligência local ainda não está pronta."
+        );
+      }
+
       const res = await apiFetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question })
       });
+
       const result = await res.json();
+      if (!res.ok) {
+        throw new Error(result.error || "Não foi possível preparar o contexto.");
+      }
+
+      const generated = await generateTransformersText(
+        result.messages,
+        { maxNewTokens: 256 }
+      );
 
       const aiMsg = {
         id: "msg-ai-" + Date.now(),
         sender: "ai",
         name: "IA Assistente",
-        text: result.error ? `Erro ao responder: ${result.error}` : result.answer,
+        text: generated.text || "O modelo não retornou texto.",
         sources: result.sources || []
       };
 
       this.next({
-        chatMessages: [...this.state.chatMessages, aiMsg],
+        chatMessages: [...priorMessages, userMsg, aiMsg],
         isTyping: false
       });
-    } catch (e) {
+    } catch (error) {
       this.next({
-        chatMessages: [...this.state.chatMessages, {
-          id: "msg-err-" + Date.now(),
-          sender: "ai",
-          name: "IA Assistente",
-          text: "Erro ao comunicar-se com a inteligência artificial da rede local."
-        }],
+        chatMessages: [
+          ...priorMessages,
+          userMsg,
+          {
+            id: "msg-err-" + Date.now(),
+            sender: "ai",
+            name: "IA Assistente",
+            text: `Erro ao executar a inteligência local: ${error.message}`
+          }
+        ],
         isTyping: false
       });
     }
@@ -393,6 +470,8 @@ function* AppGenerator({ id }) {
 
     // Componentes condicionais derivados de estado
     const showRegister = s.user && !s.user.registered;
+    const showModelSetup =
+      s.user && s.user.registered && !s.modelReady;
     const isDashboard = s.activeTab === "dashboard";
     const isFtp = s.activeTab === "ftp";
     const isTasks = s.activeTab === "tasks";
@@ -496,6 +575,44 @@ function* AppGenerator({ id }) {
                 <button onclick="const el = document.getElementById('${this.id}').component; el.registerUser(document.getElementById('reg-pairing-token').value, document.getElementById('reg-name').value, document.getElementById('reg-role').value, document.getElementById('reg-sector').value)" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition duration-200 flex items-center justify-center gap-2 shadow-lg shadow-blue-500/10 text-xs">
                   <i data-lucide="check" class="w-4 h-4"></i> Concluir Cadastro
                 </button>
+              </div>
+            </div>
+
+            <!-- PREPARAÇÃO DA INTELIGÊNCIA LOCAL -->
+            <div class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-40 flex items-center justify-center p-4 ${showModelSetup ? '' : 'hidden'}">
+              <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-8 border border-slate-100">
+                <div class="flex items-center gap-3 mb-5">
+                  <div class="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center">
+                    <i data-lucide="brain-circuit" class="w-6 h-6"></i>
+                  </div>
+                  <div>
+                    <h2 class="text-lg font-bold text-slate-900">Inteligência local</h2>
+                    <p class="text-xs text-slate-500">Gemma 3 1B · CPU/WebAssembly</p>
+                  </div>
+                </div>
+
+                <p class="text-xs leading-relaxed text-slate-600 mb-5">
+                  O modelo é baixado uma vez neste navegador, armazenado em cache
+                  persistente e executado localmente. Tamanho aproximado: 1,05 GB.
+                </p>
+
+                <div class="h-3 rounded-full bg-slate-200 overflow-hidden mb-2">
+                  <div class="h-full bg-indigo-600 transition-all duration-300" style="width: ${Math.max(0, Math.min(100, s.modelProgress || 0))}%"></div>
+                </div>
+
+                <div class="flex justify-between text-[10px] text-slate-500 mb-5">
+                  <span>${s.modelPreparing ? "Baixando e preparando..." : (s.modelError ? "Preparação interrompida" : "Verificando cache...")}</span>
+                  <span>${s.modelProgress || 0}%</span>
+                </div>
+
+                ${s.modelError ? `
+                  <div class="text-xs text-red-700 bg-red-50 border border-red-200 rounded-xl p-3 mb-4">
+                    ${s.modelError}
+                  </div>
+                  <button onclick="document.getElementById('${this.id}').component.prepareLocalModel()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl text-xs">
+                    Tentar novamente
+                  </button>
+                ` : ""}
               </div>
             </div>
 
@@ -902,7 +1019,38 @@ const appCtx = {};
 const appIterator = AppGenerator.call(appCtx, { id: "app-root" });
 
 // Bind explícito dos métodos iteradores diretamente no contexto conforme especificação pura
-appCtx.next = appIterator.next.bind(appIterator);
+const rawGeneratorNext = appIterator.next.bind(appIterator);
+let generatorRunning = false;
+let queuedGeneratorPatches = [];
+
+appCtx.next = patch => {
+  if (generatorRunning) {
+    if (patch && typeof patch === "object") {
+      queuedGeneratorPatches.push(patch);
+    }
+    return { done: false, value: appCtx.element || null };
+  }
+
+  generatorRunning = true;
+  let result;
+
+  try {
+    result = rawGeneratorNext(patch);
+  } finally {
+    generatorRunning = false;
+  }
+
+  if (queuedGeneratorPatches.length > 0) {
+    const mergedPatch = Object.assign(
+      {},
+      ...queuedGeneratorPatches.splice(0)
+    );
+    queueMicrotask(() => appCtx.next(mergedPatch));
+  }
+
+  return result;
+};
+
 appCtx.return = appIterator.return.bind(appIterator);
 appCtx.throw = appIterator.throw.bind(appIterator);
 

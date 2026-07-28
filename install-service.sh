@@ -21,9 +21,7 @@ SERVICE_TARGET="$SYSTEMD_DIR/engenharia.service"
 PORT="${ENGINEERING_PORT:-3001}"
 FTP_PORT="${ENGINEERING_FTP_PORT:-2122}"
 FTP_ENABLED="${FTP_ENABLED:-1}"
-PREPARE_MODEL="${PREPARE_MODEL:-1}"
 ISSUE_INITIAL_TOKEN="${ISSUE_INITIAL_TOKEN:-1}"
-MODEL_PRELOAD="${MODEL_PRELOAD:-$PREPARE_MODEL}"
 
 for command in node npm openssl systemctl; do
   command -v "$command" >/dev/null 2>&1 || {
@@ -116,14 +114,6 @@ TLS_KEY_PATH=$KEY_FILE
 FTP_TLS_CERT_PATH=$CERT_FILE
 FTP_TLS_KEY_PATH=$KEY_FILE
 ALLOW_INSECURE_HTTP=0
-MODEL_ID=onnx-community/gemma-3-1b-it-ONNX
-MODEL_FALLBACK_ID=onnx-community/Qwen2.5-0.5B-Instruct
-MODEL_DTYPE=q4
-MODEL_DEVICE=
-MODEL_CACHE_DIR=$ROOT/.cache/transformers
-MODEL_MAX_NEW_TOKENS=768
-MODEL_MAX_INPUT_CHARS=24000
-MODEL_PRELOAD=$MODEL_PRELOAD
 MAX_UPLOAD_BYTES=20971520
 ENV
 chmod 600 "$ENV_FILE"
@@ -131,19 +121,10 @@ chmod 600 "$ENV_FILE"
 printf '==> Instalando dependências\n'
 cd "$ROOT"
 npm install --registry=https://registry.npmjs.org
-npm rebuild onnxruntime-node sharp protobufjs
-node --input-type=module -e 'const m=await import("onnxruntime-node"); if(!m.InferenceSession) throw new Error("Runtime ONNX indisponível"); console.log("Runtime ONNX carregado.")'
+npm run build:client
 npm run check
 npm test
 
-if [[ "$PREPARE_MODEL" == "1" ]]; then
-  printf '==> Preparando o modelo local\n'
-  set -a
-  # shellcheck disable=SC1090
-  source "$ENV_FILE"
-  set +a
-  npm run model:prepare
-fi
 
 sed \
   -e "s|__PROJECT_DIR__|$ROOT|g" \

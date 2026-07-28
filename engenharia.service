@@ -1,5 +1,5 @@
 [Unit]
-Description=Central de Engenharia — HTTPS, FTPS, OKF e Transformers.js
+Description=Central de Engenharia — HTTPS, FTPS, OKF e Gemma no navegador
 After=network-online.target
 Wants=network-online.target
 

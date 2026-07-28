@@ -1,18 +1,20 @@
 {
   "name": "maximus-engenharia-local",
-  "version": "2.1.0",
-  "description": "Central local de Engenharia com pareamento por dispositivo, OKF, FTPS e Transformers.js",
+  "version": "2.2.0",
+  "description": "Central local de Engenharia com pareamento por dispositivo, OKF, FTPS e Gemma baixado no navegador",
   "main": "server.js",
   "type": "module",
   "scripts": {
     "start": "node server.js",
     "check": "node scripts/check.mjs",
     "test": "node --test",
-    "model:prepare": "node scripts/prepare-model.js",
     "pairing:issue": "node scripts/issue-pairing-token.js",
     "devices:list": "node scripts/list-devices.js",
     "device:revoke": "node scripts/revoke-device.js",
-    "audit:prod": "npm audit --omit=dev"
+    "audit:prod": "npm audit --omit=dev",
+    "build:client": "vite build",
+    "build": "npm run build:client",
+    "dev:client": "vite --host 0.0.0.0"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
@@ -28,6 +30,10 @@
     "onnxruntime-node@1.24.3": true,
     "sharp@0.34.5": true,
     "protobufjs@7.6.5": true,
-    "dtrace-provider": false
+    "dtrace-provider": false,
+    "esbuild@0.28.1": true
+  },
+  "devDependencies": {
+    "vite": "7.3.6"
   }
 }

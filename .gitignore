@@ -19,3 +19,5 @@ okf/db.sqlite-wal
 okf/manifest.json
 okf/uploads_raw/
 okf/knowledge/
+
+public/build/

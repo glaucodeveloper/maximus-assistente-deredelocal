@@ -1,13 +1,21 @@
-import {defineConfig} from 'vite';
-import {resolve} from 'node:path';
+import { defineConfig } from "vite";
 
 export default defineConfig({
-  base: './',
+  publicDir: false,
+  worker: {
+    format: "es",
+  },
   build: {
-    target: 'es2022',
+    outDir: "public/build",
+    emptyOutDir: true,
+    sourcemap: true,
+    target: "es2022",
     rollupOptions: {
-      input: {
-        app: resolve(import.meta.dirname, 'index.html'),
+      input: "public/app.js",
+      output: {
+        entryFileNames: "app.js",
+        chunkFileNames: "chunks/[name]-[hash].js",
+        assetFileNames: "assets/[name]-[hash][extname]",
       },
     },
   },

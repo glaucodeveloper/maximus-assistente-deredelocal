@@ -10,7 +10,6 @@ import { createHash } from "node:crypto";
 import { basename, extname, resolve } from "node:path";
 import pdfParse from "pdf-parse";
 import { db } from "./db.js";
-import { geminiService } from "./gemini.js";
 
 mkdirSync("okf/knowledge", { recursive: true });
 mkdirSync("okf/uploads_raw/.archive", { recursive: true });
@@ -114,6 +113,54 @@ function safeArchiveName(fileName) {
   return `${Date.now()}-${cleaned || "arquivo"}`;
 }
 
+function yamlText(value, maxLength = 500) {
+  return String(value || "")
+    .replace(/[\u0000-\u001f\u007f]/g, " ")
+    .replace(/"/g, "'")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, maxLength);
+}
+
+function standardizeDocument({ text, fileName, author }) {
+  const source = String(text || "").trim();
+  const title =
+    yamlText(fileName.replace(/\.[^/.]+$/, "").replace(/[-_]+/g, " "), 160) ||
+    "Documento técnico";
+  const description =
+    yamlText(source.slice(0, 500), 300) ||
+    "Documento técnico armazenado para análise local.";
+  const tags = [
+    "engenharia",
+    extname(fileName).replace(".", "") || "arquivo"
+  ];
+
+  const markdown = `---
+type: "knowledge-document"
+title: "${title}"
+description: "${description}"
+tags: ["${tags.join('", "')}"]
+author: "${yamlText(author.name, 80)} (${yamlText(author.role, 80)})"
+sector: "${yamlText(author.sector, 80)}"
+source_file: "${yamlText(fileName, 180)}"
+timestamp: "${new Date().toISOString()}"
+---
+
+# ${title}
+
+## Conteúdo extraído
+
+${source}
+`;
+
+  return {
+    markdown,
+    title,
+    description,
+    tags,
+  };
+}
+
 export const pipelineService = {
   async processUploadedFile(
     rawFilePath,
@@ -161,7 +208,7 @@ export const pipelineService = {
         extractedText = `Arquivo técnico ${fileName} sem texto diretamente extraível.`;
       }
 
-      const standardization = await geminiService.standardizeDocument({
+      const standardization = standardizeDocument({
         text: extractedText,
         fileName,
         author: user,
