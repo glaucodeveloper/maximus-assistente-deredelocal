@@ -1,0 +1,18 @@
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs">
+  <Package Name="Engenharia" Manufacturer="Glauco Developer"
+    Version="$(ProductVersion)"
+    UpgradeCode="B86357DD-14D4-4C2D-997D-D51B8F6C5BC6"
+    Scope="perMachine">
+    <SummaryInformation Description="Servidor local Nim de Engenharia"
+      Manufacturer="Glauco Developer" />
+    <MajorUpgrade
+      DowngradeErrorMessage="Uma versão mais recente já está instalada." />
+    <MediaTemplate EmbedCab="yes" />
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="Engenharia" />
+    </StandardDirectory>
+    <Feature Id="MainFeature" Title="Engenharia" Level="1">
+      <Files Include="$(StageDir)\**" Directory="INSTALLFOLDER" />
+    </Feature>
+  </Package>
+</Wix>

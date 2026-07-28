@@ -1,9 +1,3 @@
-import {
-  generateTransformersText,
-  hasCompleteMarker,
-  prepareTransformersModel,
-} from "../src/client/transformers-runtime.js";
-
 // AUTENTICAÇÃO LOCAL: token de acesso vinculado ao endereço da máquina
 const DEVICE_TOKEN_KEY = "engenharia.device.access-token";
 const nativeFetch = window.fetch.bind(window);
@@ -114,7 +108,7 @@ function* AppGenerator({ id }) {
 
         if (data.ftp?.enabled) {
           window.prompt(
-            `Pareamento concluído. Copie agora a senha FTPS do usuário ${data.ftp.username}:`,
+            `Pareamento concluído. Copie agora a senha GitHub do usuário ${data.ftp.username}:`,
             data.accessToken
           );
         }
@@ -128,48 +122,28 @@ function* AppGenerator({ id }) {
   };
 
   this.prepareLocalModel = async () => {
-    if (this.state.modelReady || this.state.modelPreparing) return;
+    if (this.state.modelPreparing) return;
 
     this.next({
       modelPreparing: true,
-      modelProgress: 0,
+      modelProgress: 10,
       modelError: "",
-      modelStatus: "Verificando o cache local..."
+      modelStatus: "Verificando servidor Nim e Gemma 4..."
     });
 
     try {
-      const cached = await hasCompleteMarker();
+      const res = await apiFetch("/api/health");
+      const health = await res.json();
 
-      if (!cached) {
-        await prepareTransformersModel({
-          onProgress: progress => {
-            const labels = {
-              "webgpu-check": "Verificando aceleração WebGPU...",
-              "worker-ready": "Inicializando Gemma/WebGPU...",
-              "runtime-import": "Carregando Transformers.js...",
-              "fallback-main": "Usando Qwen 0.5B Q8 em CPU/WASM...",
-              connection: "Conectando ao Hugging Face...",
-              connected: "Conexão estabelecida.",
-              initiate: "Preparando o arquivo...",
-              download: "Iniciando download...",
-              progress: "Baixando o modelo...",
-              done: "Arquivo concluído.",
-              ready: "Inteligência pronta."
-            };
+      if (!res.ok) {
+        throw new Error(health.error || "Servidor Nim indisponível.");
+      }
 
-            const file = progress.file
-              ? ` ${progress.file}`
-              : "";
-
-            this.next({
-              modelPreparing: true,
-              modelProgress: progress.percent || 0,
-              modelError: "",
-              modelStatus:
-                `${labels[progress.status] || "Preparando..."}${file}`
-            });
-          }
-        });
+      if (!health.liteRtReady) {
+        throw new Error(
+          "O serviço LiteRT-LM ainda não está pronto. " +
+          "Verifique EngenhariaLiteRTLM no Windows."
+        );
       }
 
       this.next({
@@ -177,15 +151,15 @@ function* AppGenerator({ id }) {
         modelPreparing: false,
         modelProgress: 100,
         modelError: "",
-        modelStatus: "Inteligência local pronta."
+        modelStatus: `Gemma 4 pronto - ${health.repository}`
       });
     } catch (error) {
-      console.error("Erro ao preparar inteligência local:", error);
       this.next({
         modelReady: false,
         modelPreparing: false,
-        modelError: error.message || "Falha ao baixar o modelo local.",
-        modelStatus: "Preparação interrompida."
+        modelProgress: 0,
+        modelError: error.message,
+        modelStatus: "Servidor de IA indisponível."
       });
     }
   };
@@ -311,16 +285,11 @@ function* AppGenerator({ id }) {
         throw new Error(result.error || "Não foi possível preparar o contexto.");
       }
 
-      const generated = await generateTransformersText(
-        result.messages,
-        { maxNewTokens: 96 }
-      );
-
       const aiMsg = {
         id: "msg-ai-" + Date.now(),
         sender: "ai",
         name: "IA Assistente",
-        text: generated.text || "O modelo não retornou texto.",
+        text: result.text || "O Gemma 4 não retornou texto.",
         sources: result.sources || []
       };
 
@@ -675,7 +644,7 @@ function* AppGenerator({ id }) {
                       <i data-lucide="layout" class="w-3.5 h-3.5"></i> Dashboard
                     </button>
                     <button onclick="document.getElementById('${this.id}').component.switchTab('ftp')" class="px-4 py-2 rounded-lg transition flex items-center gap-1.5 ${isFtp ? 'bg-blue-600 text-white' : 'text-slate-300 hover:text-white'}">
-                      <i data-lucide="folder-git-2" class="w-3.5 h-3.5"></i> Áreas FTP
+                      <i data-lucide="folder-git-2" class="w-3.5 h-3.5"></i> Repositório GitHub
                     </button>
                     <button onclick="document.getElementById('${this.id}').component.switchTab('tasks')" class="px-4 py-2 rounded-lg transition flex items-center gap-1.5 relative ${isTasks ? 'bg-blue-600 text-white' : 'text-slate-300 hover:text-white'}">
                       <i data-lucide="list-todo" class="w-3.5 h-3.5"></i> Atividades
@@ -695,7 +664,7 @@ function* AppGenerator({ id }) {
                 <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col gap-4 shrink-0">
                   <div class="flex justify-between items-center">
                     <h3 class="text-xs font-bold text-slate-900 flex items-center gap-1.5">
-                      <i data-lucide="book-open" class="w-4 h-4 text-blue-600"></i> Base de Conhecimento OKF
+                      <i data-lucide="book-open" class="w-4 h-4 text-blue-600"></i> Base de Conhecimento GitHub
                     </h3>
                     <span class="text-[10px] bg-slate-100 text-slate-600 px-2.5 py-1 rounded-full font-bold">${s.documents.length} documento${s.documents.length !== 1 ? 's' : ''}</span>
                   </div>
@@ -716,7 +685,7 @@ function* AppGenerator({ id }) {
                     <div class="bg-white rounded-xl p-8 text-center text-slate-400 border border-slate-100">
                       <i data-lucide="folder-open" class="w-12 h-12 mx-auto mb-3 opacity-40"></i>
                       <p class="text-sm font-medium">Nenhum documento encontrado.</p>
-                      <p class="text-xs text-slate-500 mt-1">Sincronize arquivos via FTP ou faça um upload manual na aba Áreas FTP para começar.</p>
+                      <p class="text-xs text-slate-500 mt-1">Envie documentos ao repositório GitHub privado para começar.</p>
                     </div>
                   ` : filteredDocs.map(doc => `
                     <div class="bg-white rounded-xl p-5 border border-slate-100 hover:border-blue-300 hover:shadow-md transition duration-200 flex flex-col gap-3">
@@ -815,7 +784,7 @@ function* AppGenerator({ id }) {
                   </form>
                 </div>
 
-                <!-- ABA ÁREAS FTP -->
+                <!-- ABA REPOSITÓRIO GITHUB -->
                 <div class="flex-1 flex flex-col gap-6 h-full min-h-0 ${isFtp ? '' : 'hidden'}">
                   <!-- Pedidos Pendentes -->
                   <div class="bg-white rounded-2xl p-5 shadow-sm border border-slate-100 flex flex-col gap-3 shrink-0">
@@ -849,7 +818,7 @@ function* AppGenerator({ id }) {
                     <div class="flex justify-between items-center mb-4 shrink-0">
                       <div>
                         <h3 class="text-xs font-bold text-slate-900 flex items-center gap-2">
-                          <i data-lucide="folder-git-2" class="w-4 h-4 text-blue-600"></i> Áreas FTP e Diretórios Locais
+                          <i data-lucide="folder-git-2" class="w-4 h-4 text-blue-600"></i> Repositório GitHub e Diretórios Locais
                         </h3>
                         <p class="text-[9px] text-slate-500 font-medium mt-0.5">Sincronize arquivos pelo cliente FTP em <span class="font-mono bg-slate-100 px-1 py-0.5 rounded text-blue-600 text-[10px]">ftp://&lt;ip-servidor&gt;:2121</span></p>
                       </div>

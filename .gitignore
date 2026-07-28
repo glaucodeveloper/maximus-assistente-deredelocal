@@ -21,3 +21,6 @@ okf/uploads_raw/
 okf/knowledge/
 
 public/build/
+nim-server/bin/
+*.litertlm
+config.local.json

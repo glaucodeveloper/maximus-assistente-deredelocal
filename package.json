@@ -1,7 +1,7 @@
 {
   "name": "maximus-engenharia-local",
-  "version": "2.2.7",
-  "description": "Central local de Engenharia com pareamento por dispositivo, OKF, FTPS e Gemma baixado no navegador",
+  "version": "3.0.0",
+  "description": "Aplicação de Engenharia com servidor Nim, dados GitHub privados e Gemma 4 E2B via LiteRT-LM",
   "main": "server.js",
   "type": "module",
   "scripts": {
@@ -14,14 +14,15 @@
     "audit:prod": "npm audit --omit=dev",
     "build:client": "vite build",
     "build": "npm run build:client",
-    "dev:client": "vite --host 0.0.0.0"
+    "dev:client": "vite --host 0.0.0.0",
+    "start:legacy-node": "node server.js",
+    "build:nim": "nim c -d:release --threads:on -o:dist/EngenhariaServer nim-server/src/engenharia_server.nim",
+    "build:msi": "powershell -ExecutionPolicy Bypass -File windows/Build-Msi.ps1"
   },
   "dependencies": {
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
-    "ftp-srv": "^4.6.3",
-    "pdf-parse": "^1.1.1",
-    "@huggingface/transformers": "4.2.0"
+    "pdf-parse": "^1.1.1"
   },
   "engines": {
     "node": ">=22"
