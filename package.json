@@ -1,17 +1,27 @@
 {
-  "name": "engenharia-server",
-  "version": "1.0.0",
-  "description": "Servidor de Engenharia para sincronização FTP, padronização OKF e Chat IA",
+  "name": "maximus-engenharia-local",
+  "version": "2.1.0",
+  "description": "Central local de Engenharia com pareamento por dispositivo, OKF, FTPS e Transformers.js",
   "main": "server.js",
   "type": "module",
   "scripts": {
-    "start": "node server.js"
+    "start": "node server.js",
+    "check": "node scripts/check.mjs",
+    "test": "node --test",
+    "model:prepare": "node scripts/prepare-model.js",
+    "pairing:issue": "node scripts/issue-pairing-token.js",
+    "devices:list": "node scripts/list-devices.js",
+    "device:revoke": "node scripts/revoke-device.js",
+    "audit:prod": "npm audit --omit=dev"
   },
   "dependencies": {
-    "cors": "^2.8.5",
     "dotenv": "^16.4.5",
     "express": "^4.19.2",
     "ftp-srv": "^4.6.3",
-    "pdf-parse": "^1.1.1"
+    "pdf-parse": "^1.1.1",
+    "@huggingface/transformers": "4.2.0"
+  },
+  "engines": {
+    "node": ">=22"
   }
 }

@@ -1,467 +1,773 @@
 import express from "express";
+import http from "node:http";
 import https from "node:https";
-import cors from "cors";
 import dotenv from "dotenv";
 import FtpServer from "ftp-srv";
-import { resolve, join, basename } from "node:path";
-import { mkdirSync, existsSync, readdirSync, statSync, writeFileSync, readFileSync, createWriteStream } from "node:fs";
-import { db } from "./services/db.js";
+import {
+  basename,
+  join,
+  resolve,
+  sep,
+} from "node:path";
+import {
+  createReadStream,
+  createWriteStream,
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  readdirSync,
+  statSync,
+  unlinkSync,
+} from "node:fs";
+import { db, accountFolder } from "./services/db.js";
 import { pipelineService, getMacFromIp } from "./services/pipeline.js";
 import { geminiService } from "./services/gemini.js";
 
 dotenv.config();
 
-const PORT = process.env.PORT || 3000;
-const FTP_PORT = process.env.FTP_PORT || 2121;
+const PORT = Number(process.env.PORT) || 3001;
+const FTP_PORT = Number(process.env.FTP_PORT) || 2122;
 const TLS_CERT_PATH = process.env.TLS_CERT_PATH || "";
 const TLS_KEY_PATH = process.env.TLS_KEY_PATH || "";
+const FTP_ENABLED = process.env.FTP_ENABLED === "1";
+const FTP_TLS_CERT_PATH = process.env.FTP_TLS_CERT_PATH || TLS_CERT_PATH;
+const FTP_TLS_KEY_PATH = process.env.FTP_TLS_KEY_PATH || TLS_KEY_PATH;
+const ALLOW_INSECURE_HTTP = process.env.ALLOW_INSECURE_HTTP === "1";
+const MAX_UPLOAD_BYTES = Math.max(
+  64 * 1024,
+  Math.min(
+    100 * 1024 * 1024,
+    Number(process.env.MAX_UPLOAD_BYTES) || 20 * 1024 * 1024,
+  ),
+);
 
-// Garante pastas principais do OKF
-mkdirSync("okf/knowledge", { recursive: true });
-mkdirSync("okf/uploads_raw/.archive", { recursive: true });
+const OKF_ROOT = resolve("okf");
+const UPLOADS_ROOT = resolve("okf/uploads_raw");
+const ARCHIVE_ROOT = resolve("okf/uploads_raw/.archive");
+const KNOWLEDGE_ROOT = resolve("okf/knowledge");
 
-const app = express();
-app.use(cors());
-app.use(express.json());
-app.use(express.static("public"));
-
-// Helper para obter informações estruturadas do usuário atual da requisição
-function getRequestUser(req) {
-  const ip = req.ip || req.socket.remoteAddress;
-  let user = db.getUserByIp(ip);
-  if (!user) {
-    const mac = getMacFromIp(ip);
-    // Retorna um usuário mockado não registrado para sinalizar ao frontend
-    return { registered: false, ip, mac };
-  }
-  return { registered: true, ...user };
+for (const path of [OKF_ROOT, UPLOADS_ROOT, ARCHIVE_ROOT, KNOWLEDGE_ROOT]) {
+  mkdirSync(path, { recursive: true, mode: 0o700 });
 }
 
-// ==========================================
-// ROTEAMENTO DA API REST
-// ==========================================
+const app = express();
+app.disable("x-powered-by");
+app.set("trust proxy", false);
+app.use(express.json({ limit: "256kb" }));
+app.use(express.static("public", {
+  dotfiles: "deny",
+  etag: true,
+  maxAge: process.env.NODE_ENV === "production" ? "1h" : 0,
+  index: "index.html",
+}));
 
-// Obter dados do usuário conectado
-app.get("/api/user/me", (req, res) => {
-  const user = getRequestUser(req);
-  res.json(user);
+app.use((req, res, next) => {
+  res.setHeader("X-Content-Type-Options", "nosniff");
+  res.setHeader("X-Frame-Options", "DENY");
+  res.setHeader("Referrer-Policy", "no-referrer");
+  res.setHeader(
+    "Content-Security-Policy",
+    [
+      "default-src 'self'",
+      "script-src 'self' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com",
+      "style-src 'self' 'unsafe-inline'",
+      "img-src 'self' data:",
+      "connect-src 'self'",
+      "font-src 'self' data:",
+      "frame-ancestors 'none'",
+      "base-uri 'self'",
+      "form-action 'self'",
+    ].join("; "),
+  );
+  next();
 });
 
-// Registrar dispositivo/usuário
-app.post("/api/user/register", (req, res) => {
-  const { name, role, sector } = req.body;
-  if (!name || !role || !sector) {
-    return res.status(400).json({ error: "Campos name, role e sector são obrigatórios." });
+function normalizeIp(value) {
+  const normalized = String(value || "").trim().replace(/^::ffff:/, "");
+  return normalized === "::1" ? "127.0.0.1" : normalized;
+}
+
+function requestIp(req) {
+  return normalizeIp(req.socket.remoteAddress || req.ip || "");
+}
+
+function requestIdentity(req) {
+  const ip = requestIp(req);
+  return {
+    ip,
+    machineAddress: getMacFromIp(ip),
+  };
+}
+
+function bearerToken(req) {
+  const authorization = String(req.headers.authorization || "");
+  const match = authorization.match(/^Bearer\s+(.+)$/i);
+  return match?.[1]?.trim() || "";
+}
+
+function userFolder(user) {
+  return accountFolder(user);
+}
+
+function safeFolder(value) {
+  const folder = String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "")
+    .slice(0, 40);
+  if (!folder) throw new Error("Pasta de usuário inválida.");
+  return folder;
+}
+
+function safeFileName(value) {
+  const name = basename(String(value || ""))
+    .replace(/[^A-Za-z0-9._() -]+/g, "-")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+  if (!name || name === "." || name === "..") {
+    throw new Error("Nome de arquivo inválido.");
+  }
+  return name;
+}
+
+function isInside(root, candidate) {
+  const normalizedRoot = resolve(root);
+  const normalizedCandidate = resolve(candidate);
+  return (
+    normalizedCandidate === normalizedRoot ||
+    normalizedCandidate.startsWith(`${normalizedRoot}${sep}`)
+  );
+}
+
+function requireDeviceAuth(req, res, next) {
+  const identity = requestIdentity(req);
+  if (!identity.machineAddress) {
+    return res.status(401).json({
+      error:
+        "Não foi possível resolver o endereço físico desta máquina. " +
+        "O pareamento exige cliente e servidor na mesma rede local.",
+      code: "MACHINE_ADDRESS_UNAVAILABLE",
+    });
   }
 
-  const ip = req.ip || req.socket.remoteAddress;
-  const mac = getMacFromIp(ip);
-
-  const user = db.createUser({
-    mac,
-    ip: ip.replace(/^::ffff:/, ""),
-    name,
-    role,
-    sector
+  const user = db.authenticateDevice({
+    accessToken: bearerToken(req),
+    machineAddress: identity.machineAddress,
+    ip: identity.ip,
   });
 
-  // Cria a pasta privada do usuário no FTP uploads_raw
-  const usernameFolder = name.toLowerCase().replace(/[^a-z0-9]+/g, "");
-  mkdirSync(join("okf/uploads_raw", usernameFolder), { recursive: true });
+  if (!user) {
+    return res.status(401).json({
+      error:
+        "Token ausente, revogado ou vinculado a outra máquina. " +
+        "Solicite um novo token de pareamento.",
+      code: "DEVICE_AUTH_REQUIRED",
+    });
+  }
 
-  console.log(`[Server] Dispositivo registrado: ${name} (IP: ${ip}, MAC: ${mac})`);
-  res.json({ success: true, user });
+  req.user = user;
+  req.deviceIdentity = identity;
+  next();
+}
+
+const pairingAttempts = new Map();
+
+function checkPairingRate(ip) {
+  const now = Date.now();
+  const windowMs = 15 * 60 * 1000;
+  const state = pairingAttempts.get(ip) || { count: 0, startedAt: now };
+  if (now - state.startedAt > windowMs) {
+    state.count = 0;
+    state.startedAt = now;
+  }
+  state.count += 1;
+  pairingAttempts.set(ip, state);
+  return state.count <= 10;
+}
+
+app.get("/api/device/status", (req, res) => {
+  const identity = requestIdentity(req);
+  res.json({
+    registered: false,
+    ip: identity.ip,
+    machineAddress: identity.machineAddress,
+    addressAvailable: Boolean(identity.machineAddress),
+    requiresPairingToken: true,
+  });
 });
 
-// Listar todos os usuários cadastrados
-app.get("/api/user/list", (req, res) => {
+app.post("/api/user/register", (req, res) => {
+  const identity = requestIdentity(req);
+  if (!checkPairingRate(identity.ip)) {
+    return res.status(429).json({
+      error: "Muitas tentativas de pareamento. Aguarde quinze minutos.",
+    });
+  }
+  if (!identity.machineAddress) {
+    return res.status(400).json({
+      error:
+        "O endereço físico da máquina não está disponível. " +
+        "Conecte cliente e servidor ao mesmo segmento da rede local.",
+    });
+  }
+
+  const { pairingToken, name, role, sector, label } = req.body || {};
+  if (!pairingToken) {
+    return res.status(400).json({ error: "Informe o token de pareamento." });
+  }
+
+  try {
+    const result = db.pairDevice({
+      pairingToken,
+      machineAddress: identity.machineAddress,
+      ip: identity.ip,
+      name,
+      role,
+      sector,
+      label,
+    });
+
+    const folder = userFolder(result.user);
+    mkdirSync(join(UPLOADS_ROOT, folder), {
+      recursive: true,
+      mode: 0o700,
+    });
+
+    console.log(
+      `[Segurança] Dispositivo ${result.device.id} pareado com ` +
+      `${result.user.name} em ${identity.machineAddress}.`,
+    );
+
+    res.json({
+      success: true,
+      accessToken: result.accessToken,
+      user: {
+        registered: true,
+        ...result.user,
+      },
+      ftp: FTP_ENABLED
+        ? {
+            enabled: true,
+            username: result.user.mac,
+            password: result.accessToken,
+            protocol: "ftps",
+            port: FTP_PORT,
+          }
+        : { enabled: false },
+    });
+  } catch (error) {
+    console.warn(`[Segurança] Pareamento recusado para ${identity.ip}:`, error.message);
+    res.status(401).json({ error: error.message });
+  }
+});
+
+app.use("/api", requireDeviceAuth);
+
+app.get("/api/user/me", (req, res) => {
+  res.json({ registered: true, ...req.user });
+});
+
+app.get("/api/user/list", (_req, res) => {
   res.json(db.listUsers());
 });
 
-// Solicitar permissão para pasta de outro usuário
+app.get("/api/model/status", (_req, res) => {
+  res.json(geminiService.status());
+});
+
 app.post("/api/permissions/request", (req, res) => {
-  const user = getRequestUser(req);
-  if (!user.registered) return res.status(401).json({ error: "Dispositivo não registrado." });
+  const targetUsername = safeFolder(req.body?.targetUsername);
+  if (targetUsername === userFolder(req.user)) {
+    return res.status(400).json({ error: "Sua própria pasta já permite escrita." });
+  }
+  const targetUser = db.getUserByUsername(targetUsername);
+  if (!targetUser) {
+    return res.status(404).json({ error: "O proprietário da pasta não existe." });
+  }
 
-  const { targetUsername } = req.body;
-  if (!targetUsername) return res.status(400).json({ error: "Nome da pasta alvo é obrigatório." });
-
-  db.createPermissionRequest({
-    requesterMac: user.mac,
-    targetUsername: targetUsername.toLowerCase()
+  const id = db.createPermissionRequest({
+    requesterMac: req.user.mac,
+    targetUsername,
   });
-
-  res.json({ success: true, message: "Solicitação enviada com sucesso." });
+  res.json({ success: true, id, message: "Solicitação enviada." });
 });
 
-// Responder a pedido de permissão (Dono da pasta responde)
 app.post("/api/permissions/respond", (req, res) => {
-  const user = getRequestUser(req);
-  if (!user.registered) return res.status(401).json({ error: "Dispositivo não registrado." });
-
-  const { id, status } = req.body; // status: 'approved' ou 'rejected'
-  if (!id || !status) return res.status(400).json({ error: "Campos id e status são obrigatórios." });
-
-  db.updatePermissionStatus(id, status);
-  res.json({ success: true, message: `Solicitação atualizada para: ${status}` });
+  const { id, status } = req.body || {};
+  const changed = db.updatePermissionStatusForOwner(
+    id,
+    status,
+    userFolder(req.user),
+  );
+  if (!changed) {
+    return res.status(404).json({
+      error: "Solicitação inexistente, já respondida ou pertencente a outro usuário.",
+    });
+  }
+  res.json({ success: true, message: `Solicitação atualizada para ${status}.` });
 });
 
-// Listar pedidos de permissão pendentes
 app.get("/api/permissions/pending", (req, res) => {
-  res.json(db.listPendingPermissions());
+  res.json(db.listPendingPermissionsForOwner(userFolder(req.user)));
 });
 
-// Listar todas as permissões
-app.get("/api/permissions", (req, res) => {
+app.get("/api/permissions", (_req, res) => {
   res.json(db.listAllPermissions());
 });
 
-// Listar tarefas (tasks)
-app.get("/api/tasks", (req, res) => {
+app.get("/api/tasks", (_req, res) => {
   res.json(db.listTasks());
 });
 
-// Criar nova tarefa
 app.post("/api/tasks", (req, res) => {
-  const { title, description, assignedToMac } = req.body;
+  const { title, description, assignedToMac } = req.body || {};
   if (!title || !description || !assignedToMac) {
-    return res.status(400).json({ error: "Campos title, description e assignedToMac são obrigatórios." });
+    return res.status(400).json({
+      error: "Título, descrição e responsável são obrigatórios.",
+    });
   }
-
-  db.createTask({ title, description, assignedToMac });
-  res.json({ success: true, message: "Tarefa criada com sucesso." });
+  try {
+    db.createTask({ title, description, assignedToMac });
+    res.json({ success: true, message: "Tarefa criada." });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
-// Atualizar status de tarefa
 app.post("/api/tasks/:id/status", (req, res) => {
-  const { id } = req.params;
-  const { status } = req.body; // 'pending', 'in_progress', 'completed'
-  if (!status) return res.status(400).json({ error: "Campo status é obrigatório." });
-
-  db.updateTaskStatus(id, status);
-  res.json({ success: true, message: "Status da tarefa atualizado." });
+  try {
+    db.updateTaskStatus(req.params.id, req.body?.status);
+    res.json({ success: true, message: "Status atualizado." });
+  } catch (error) {
+    res.status(400).json({ error: error.message });
+  }
 });
 
-// Listar documentos padronizados do OKF
-app.get("/api/documents", (req, res) => {
+app.get("/api/documents", (_req, res) => {
   res.json(db.listDocuments());
 });
 
-// Obter conteúdo de um documento específico
 app.get("/api/documents/*", (req, res) => {
-  const docPath = req.params[0]; // Caminho relativo como 'knowledge/exemplo.md'
-  const absolutePath = resolve("okf", docPath);
-  if (!existsSync(absolutePath) || absolutePath.includes("..")) {
+  const relativePath = String(req.params[0] || "");
+  const absolutePath = resolve(OKF_ROOT, relativePath);
+  if (
+    !relativePath ||
+    !isInside(KNOWLEDGE_ROOT, absolutePath) ||
+    !absolutePath.toLowerCase().endsWith(".md") ||
+    !existsSync(absolutePath)
+  ) {
     return res.status(404).json({ error: "Documento não encontrado." });
   }
-  try {
-    // Retorna raw text
-    res.send(readFileSync(absolutePath, "utf8"));
-  } catch (e) {
-    res.status(500).json({ error: e.message });
-  }
+
+  res.type("text/markdown; charset=utf-8");
+  createReadStream(absolutePath).pipe(res);
 });
 
-// Chat Inteligente RAG com documentos técnicos
 app.post("/api/chat", async (req, res) => {
-  const user = getRequestUser(req);
-  if (!user.registered) return res.status(401).json({ error: "Dispositivo não registrado." });
-
-  const { question } = req.body;
-  if (!question) return res.status(400).json({ error: "A pergunta é obrigatória." });
+  const question = String(req.body?.question || "").trim().slice(0, 4000);
+  if (!question) {
+    return res.status(400).json({ error: "A pergunta é obrigatória." });
+  }
 
   try {
     const documents = db.listDocuments();
-    let finalContextDocs = [];
-    let loadedDocs = [];
+    const terms = question
+      .toLowerCase()
+      .split(/\s+/)
+      .filter(term => term.length > 2)
+      .slice(0, 30);
 
-    if (documents.length > 0) {
-      // Busca RAG simples: calcula interseção de termos para obter documentos relevantes
-      const terms = question.toLowerCase().split(/\s+/).filter(t => t.length > 2);
-      const rankedDocs = documents.map(doc => {
+    const ranked = documents
+      .map(doc => {
+        const indexText =
+          `${doc.title} ${doc.description} ${doc.tags.join(" ")}`.toLowerCase();
         let score = 0;
-        const contentLower = `${doc.title} ${doc.description} ${doc.tags.join(" ")}`.toLowerCase();
         for (const term of terms) {
-          if (contentLower.includes(term)) score += 1;
-          if (doc.title.toLowerCase().includes(term)) score += 2; // Título tem mais peso
+          if (indexText.includes(term)) score += 1;
+          if (doc.title.toLowerCase().includes(term)) score += 2;
         }
         return { doc, score };
       })
-      .filter(item => item.score > 0)
-      .sort((a, b) => b.score - a.score)
-      .slice(0, 5) // Pega os top 5
-      .map(item => item.doc);
+      .sort((left, right) => right.score - left.score);
 
-      // Se não encontrou nenhuma interseção, passa os top 3 mais recentes como contexto de segurança
-      finalContextDocs = rankedDocs.length > 0 ? rankedDocs : documents.slice(0, 3);
-
-      // Carrega o conteúdo físico de cada arquivo markdown para enviar ao Gemini
-      loadedDocs = finalContextDocs.map(doc => {
-        try {
-          const fullPath = resolve("okf", doc.path);
-          const content = existsSync(fullPath) ? readFileSync(fullPath, "utf8") : "";
-          return { ...doc, content };
-        } catch (e) {
-          return { ...doc, content: "" };
-        }
-      });
-    }
+    const contextDocs = (
+      ranked.some(item => item.score > 0)
+        ? ranked.filter(item => item.score > 0)
+        : ranked
+    ).slice(0, 5).map(({ doc }) => {
+      const fullPath = resolve(OKF_ROOT, doc.path);
+      const content =
+        isInside(KNOWLEDGE_ROOT, fullPath) && existsSync(fullPath)
+          ? readFileSync(fullPath, "utf8").slice(0, 8000)
+          : "";
+      return { ...doc, content };
+    });
 
     const answer = await geminiService.askEngineeringChat({
       question,
-      contextDocs: loadedDocs,
-      user
+      contextDocs,
+      user: req.user,
     });
 
     res.json({
       answer,
-      sources: finalContextDocs.map(doc => ({
+      sources: contextDocs.map(doc => ({
         title: doc.title,
         path: doc.path,
-        author: `${doc.author_name} (${doc.author_role})`
-      }))
+        author: `${doc.author_name} (${doc.author_role})`,
+      })),
     });
-  } catch (e) {
-    console.error("[Chat API Error]", e);
-    res.status(500).json({ error: e.message });
+  } catch (error) {
+    console.error("[Chat]", error);
+    res.status(500).json({ error: error.message });
   }
 });
 
-// Upload direto via Interface Web
 app.post("/api/upload", (req, res) => {
-  const user = getRequestUser(req);
-  if (!user.registered) return res.status(401).json({ error: "Dispositivo não registrado." });
+  let fileName;
+  let targetFolder;
+  try {
+    fileName = safeFileName(req.headers["x-filename"]);
+    targetFolder = safeFolder(
+      req.headers["x-user-folder"] || userFolder(req.user),
+    );
+  } catch (error) {
+    return res.status(400).json({ error: error.message });
+  }
 
-  const fileName = req.headers["x-filename"];
-  const targetUserFolder = req.headers["x-user-folder"] || user.name.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  const ownFolder = userFolder(req.user);
+  if (
+    targetFolder !== ownFolder &&
+    !db.checkPermission(req.user.mac, targetFolder)
+  ) {
+    return res.status(403).json({
+      error: "A escrita nesta pasta exige aprovação do proprietário.",
+    });
+  }
+  if (!db.getUserByUsername(targetFolder)) {
+    return res.status(404).json({ error: "Pasta de usuário inexistente." });
+  }
 
-  if (!fileName) return res.status(400).json({ error: "Cabeçalho X-Filename é obrigatório." });
+  const declaredSize = Number(req.headers["content-length"] || 0);
+  if (declaredSize > MAX_UPLOAD_BYTES) {
+    return res.status(413).json({
+      error: `O arquivo excede ${Math.round(MAX_UPLOAD_BYTES / 1024 / 1024)} MB.`,
+    });
+  }
 
-  const userPath = join("okf/uploads_raw", targetUserFolder);
-  mkdirSync(userPath, { recursive: true });
+  const userPath = join(UPLOADS_ROOT, targetFolder);
+  mkdirSync(userPath, { recursive: true, mode: 0o700 });
+  const tempPath = join(userPath, `${Date.now()}-${fileName}`);
+  const writeStream = createWriteStream(tempPath, {
+    flags: "wx",
+    mode: 0o600,
+  });
 
-  const tempPath = join(userPath, fileName);
-  const writeStream = createWriteStream(tempPath);
+  let received = 0;
+  let aborted = false;
+
+  req.on("data", chunk => {
+    received += chunk.length;
+    if (received > MAX_UPLOAD_BYTES && !aborted) {
+      aborted = true;
+      req.unpipe(writeStream);
+      writeStream.destroy(new Error("UPLOAD_TOO_LARGE"));
+      req.resume();
+    }
+  });
 
   req.pipe(writeStream);
 
   writeStream.on("finish", async () => {
+    if (aborted) return;
     try {
-      const result = await pipelineService.processUploadedFile(tempPath, req.ip, targetUserFolder);
-      res.json(result);
-    } catch (e) {
-      res.status(500).json({ error: e.message });
+      const result = await pipelineService.processUploadedFile(
+        tempPath,
+        req.deviceIdentity.ip,
+        targetFolder,
+        req.user,
+      );
+      if (!result.success && existsSync(tempPath)) unlinkSync(tempPath);
+      res.status(result.success ? 200 : 500).json(result);
+    } catch (error) {
+      if (existsSync(tempPath)) unlinkSync(tempPath);
+      if (!res.headersSent) res.status(500).json({ error: error.message });
     }
   });
 
-  writeStream.on("error", (e) => {
-    res.status(500).json({ error: e.message });
+  writeStream.on("error", error => {
+    if (existsSync(tempPath)) unlinkSync(tempPath);
+    if (!res.headersSent) {
+      res.status(error.message === "UPLOAD_TOO_LARGE" ? 413 : 500).json({
+        error:
+          error.message === "UPLOAD_TOO_LARGE"
+            ? "O arquivo excede o limite configurado."
+            : error.message,
+      });
+    }
   });
 });
 
+let ftpServer = null;
 
-// ==========================================
-// SERVIDOR FTP INTEGRADO COM SEGURANÇA
-// ==========================================
-
-const ftpServer = new FtpServer({
-  url: `ftp://0.0.0.0:${FTP_PORT}`,
-  anonymous: true,
-  greeting: "Servidor de Engenharia FTP - Sincronização OKF"
-});
-
-// Customiza o login para associar o diretório raiz e checar permissões
-ftpServer.on("login", ({ connection, username, password }, resolveFtp, rejectFtp) => {
-  const clientIp = connection.ip || connection.socket.remoteAddress;
-  const user = db.getUserByIp(clientIp);
-
-  // Todo mundo compartilha o mesmo root local físico, mas o comportamento
-  // de gravação do FileSystem é restrito por usuário.
-  const rootPath = resolve("okf/uploads_raw");
-  mkdirSync(rootPath, { recursive: true });
-
-  // Cria classe de FileSystem customizada para este cliente
-  class SecureFileSystem extends FtpServer.FileSystem {
-    constructor(conn, options) {
-      super(conn, options);
-      this.clientIp = clientIp;
-      this.user = user;
-    }
-
-    _getOwnerOfPath(fileName) {
-      const { clientPath } = this._resolvePath(fileName);
-      const parts = clientPath.split("/").filter(Boolean);
-      return parts[0] || null; // Nome da primeira pasta (pasta do dono)
-    }
-
-    // Intercepta operações de escrita, exclusão e alteração
-    write(fileName, options) {
-      const targetOwner = this._getOwnerOfPath(fileName);
-      if (targetOwner && targetOwner !== ".archive") {
-        const usernameFolder = this.user ? this.user.name.toLowerCase().replace(/[^a-z0-9]+/g, "") : null;
-        const isOwnFolder = usernameFolder === targetOwner.toLowerCase();
-
-        if (!isOwnFolder) {
-          // Checa se o proprietário deu permissão
-          const hasPermission = this.user ? db.checkPermission(this.user.mac, targetOwner) : null;
-          if (!hasPermission) {
-            // Solicita permissão de forma assíncrona gerando um evento pendente
-            if (this.user) {
-              db.createPermissionRequest({
-                requesterMac: this.user.mac,
-                targetUsername: targetOwner
-              });
-              console.log(`[FTP] Escrita negada em ${fileName} de ${this.clientIp}. Solicitação criada para ${targetOwner}.`);
-            }
-            return Promise.reject(new Error("PERMISSAO_NEGADA: Você não possui autorização de escrita para esta pasta."));
-          }
-        }
-      }
-      return super.write(fileName, options);
-    }
-
-    delete(path) {
-      const targetOwner = this._getOwnerOfPath(path);
-      if (targetOwner && targetOwner !== ".archive") {
-        const usernameFolder = this.user ? this.user.name.toLowerCase().replace(/[^a-z0-9]+/g, "") : null;
-        if (usernameFolder !== targetOwner.toLowerCase()) {
-          return Promise.reject(new Error("PERMISSAO_NEGADA: Apenas o proprietário pode excluir arquivos desta pasta."));
-        }
-      }
-      return super.delete(path);
-    }
-
-    rename(from, to) {
-      const targetOwnerFrom = this._getOwnerOfPath(from);
-      const targetOwnerTo = this._getOwnerOfPath(to);
-      const usernameFolder = this.user ? this.user.name.toLowerCase().replace(/[^a-z0-9]+/g, "") : null;
-
-      if ((targetOwnerFrom && targetOwnerFrom !== usernameFolder) || (targetOwnerTo && targetOwnerTo !== usernameFolder)) {
-        return Promise.reject(new Error("PERMISSAO_NEGADA: Operação de renomeação cruzada restrita."));
-      }
-      return super.rename(from, to);
-    }
+function createSecureFtpServer() {
+  if (!FTP_ENABLED) return null;
+  if (
+    !FTP_TLS_CERT_PATH ||
+    !FTP_TLS_KEY_PATH ||
+    !existsSync(FTP_TLS_CERT_PATH) ||
+    !existsSync(FTP_TLS_KEY_PATH)
+  ) {
+    throw new Error(
+      "FTP_ENABLED=1 exige FTP_TLS_CERT_PATH e FTP_TLS_KEY_PATH válidos. " +
+      "O token não pode trafegar por FTP sem TLS.",
+    );
   }
 
-  // Resolve a autenticação FTP devolvendo a classe customizada
-  resolveFtp({
-    root: rootPath,
-    fs: new SecureFileSystem(connection, { root: rootPath })
+  const server = new FtpServer({
+    url: `ftps://0.0.0.0:${FTP_PORT}`,
+    anonymous: false,
+    greeting: "Engenharia FTPS — dispositivo pareado",
+    tls: {
+      cert: readFileSync(FTP_TLS_CERT_PATH),
+      key: readFileSync(FTP_TLS_KEY_PATH),
+    },
   });
-});
 
-// Listener de sucesso de escrita FTP (STOR) para acionar o pipeline imediatamente
-ftpServer.on("client:connected", ({ connection }) => {
-  const clientIp = connection.ip || connection.socket.remoteAddress;
-  connection.on("stor", async (error, filePath) => {
-    if (error) {
-      console.error(`[FTP] Erro de STOR do IP ${clientIp}:`, error);
-      return;
-    }
-    console.log(`[FTP] Arquivo recebido com sucesso via STOR: ${filePath}`);
+  server.on(
+    "login",
+    ({ connection, username, password }, resolveFtp, rejectFtp) => {
+      const clientIp = normalizeIp(
+        connection.ip || connection.socket?.remoteAddress || "",
+      );
+      const machineAddress = getMacFromIp(clientIp);
+      if (!machineAddress) {
+        return rejectFtp(
+          new Error("Endereço físico indisponível para autenticação FTPS."),
+        );
+      }
 
-    // Identifica o dono da pasta onde o arquivo foi salvo
-    const parts = filePath.replace(/\\/g, "/").split("/").filter(Boolean);
-    // Encontra o index do uploads_raw para pegar a subpasta
-    const uploadsRawIdx = parts.indexOf("uploads_raw");
-    const targetUserFolder = (uploadsRawIdx !== -1 && parts[uploadsRawIdx + 1] !== ".archive") ? parts[uploadsRawIdx + 1] : null;
+      const user = db.authenticateDevice({
+        accessToken: password,
+        machineAddress,
+        ip: clientIp,
+      });
+      if (
+        !user ||
+        ![user.mac, userFolder(user)].includes(String(username || "").trim())
+      ) {
+        return rejectFtp(new Error("Credenciais ou máquina não autorizadas."));
+      }
 
-    // Dispara processamento do pipeline em background
-    setTimeout(async () => {
-      await pipelineService.processUploadedFile(filePath, clientIp, targetUserFolder);
-    }, 1000);
+      connection.authenticatedUser = user;
+      connection.authenticatedIp = clientIp;
+
+      const rootPath = UPLOADS_ROOT;
+      class SecureFileSystem extends FtpServer.FileSystem {
+        constructor(conn, options) {
+          super(conn, options);
+          this.user = user;
+        }
+
+        ownerOf(fileName) {
+          const { clientPath } = this._resolvePath(fileName);
+          return clientPath.split("/").filter(Boolean)[0] || null;
+        }
+
+        write(fileName, options) {
+          const targetOwner = this.ownerOf(fileName);
+          const ownFolder = userFolder(this.user);
+          if (!targetOwner || targetOwner === ".archive") {
+            return Promise.reject(new Error("Destino FTPS inválido."));
+          }
+          if (
+            targetOwner.toLowerCase() !== ownFolder &&
+            !db.checkPermission(this.user.mac, targetOwner)
+          ) {
+            db.createPermissionRequest({
+              requesterMac: this.user.mac,
+              targetUsername: targetOwner,
+            });
+            return Promise.reject(
+              new Error("PERMISSAO_NEGADA: aprovação necessária."),
+            );
+          }
+          return super.write(fileName, options);
+        }
+
+        delete(path) {
+          const targetOwner = this.ownerOf(path);
+          if (targetOwner?.toLowerCase() !== userFolder(this.user)) {
+            return Promise.reject(
+              new Error("PERMISSAO_NEGADA: apenas o proprietário pode excluir."),
+            );
+          }
+          return super.delete(path);
+        }
+
+        rename(from, to) {
+          const ownFolder = userFolder(this.user);
+          if (
+            this.ownerOf(from)?.toLowerCase() !== ownFolder ||
+            this.ownerOf(to)?.toLowerCase() !== ownFolder
+          ) {
+            return Promise.reject(
+              new Error("PERMISSAO_NEGADA: renomeação cruzada bloqueada."),
+            );
+          }
+          return super.rename(from, to);
+        }
+      }
+
+      return resolveFtp({
+        root: rootPath,
+        fs: new SecureFileSystem(connection, { root: rootPath }),
+      });
+    },
+  );
+
+  server.on("client:connected", ({ connection }) => {
+    connection.on("stor", (error, filePath) => {
+      if (error) {
+        console.error("[FTPS] STOR:", error);
+        return;
+      }
+
+      const user = connection.authenticatedUser;
+      if (!user) return;
+
+      const relative = resolve(filePath).slice(UPLOADS_ROOT.length);
+      const targetFolder =
+        relative.split(/[\\/]/).filter(Boolean)[0] || userFolder(user);
+
+      setTimeout(() => {
+        pipelineService.processUploadedFile(
+          filePath,
+          connection.authenticatedIp,
+          targetFolder,
+          user,
+        ).catch(error => console.error("[FTPS Pipeline]", error));
+      }, 1000);
+    });
   });
-});
 
+  return server;
+}
 
-// ==========================================
-// LOOP DE VARREDURA PERIÓDICA (FALLBACK)
-// ==========================================
+const processingFiles = new Set();
 
 async function periodicFolderScan() {
-  const rootUploads = resolve("okf/uploads_raw");
-  if (!existsSync(rootUploads)) return;
+  if (!existsSync(UPLOADS_ROOT)) return;
 
-  try {
-    const scanDir = (dirPath) => {
-      const items = readdirSync(dirPath);
-      for (const item of items) {
-        if (item === ".archive") continue;
-        const fullPath = join(dirPath, item);
-        const stat = statSync(fullPath);
-
-        if (stat.isDirectory()) {
-          scanDir(fullPath);
-        } else if (stat.isFile()) {
-          // Arquivo solto detectado!
-          // Verifica estabilidade do arquivo (tamanho fixo por 3 segundos para evitar ler arquivos em upload)
-          const size1 = stat.size;
-          setTimeout(() => {
-            if (!existsSync(fullPath)) return;
-            const size2 = statSync(fullPath).size;
-            if (size1 === size2 && size1 > 0) {
-              // Identifica a pasta do usuário baseado no caminho relativo
-              const relativePath = fullPath.substring(rootUploads.length).replace(/\\/g, "/");
-              const parts = relativePath.split("/").filter(Boolean);
-              const targetUserFolder = parts[0] || null;
-
-              // Processa arquivo pendente
-              pipelineService.processUploadedFile(fullPath, "127.0.0.1", targetUserFolder);
-            }
-          }, 3000);
-        }
+  const visit = dirPath => {
+    for (const item of readdirSync(dirPath)) {
+      if (item === ".archive") continue;
+      const fullPath = join(dirPath, item);
+      const stat = statSync(fullPath);
+      if (stat.isDirectory()) {
+        visit(fullPath);
+        continue;
       }
-    };
+      if (!stat.isFile() || processingFiles.has(fullPath)) continue;
 
-    scanDir(rootUploads);
-  } catch (e) {
-    console.error("[Scan Error]", e);
-  }
-}
+      const relative = fullPath.slice(UPLOADS_ROOT.length);
+      const targetFolder = relative.split(/[\\/]/).filter(Boolean)[0];
+      const user = db.getUserByUsername(targetFolder);
+      if (!user) continue;
 
+      processingFiles.add(fullPath);
+      setTimeout(async () => {
+        try {
+          if (!existsSync(fullPath)) return;
+          const firstSize = statSync(fullPath).size;
+          await new Promise(resolveDelay => setTimeout(resolveDelay, 2000));
+          if (!existsSync(fullPath) || statSync(fullPath).size !== firstSize) return;
 
-// Inicializa e reconstrói o manifest na subida do servidor
-pipelineService.rebuildManifest();
-
-// Inicia servidores
-const tlsEnabled =
-  TLS_CERT_PATH.length > 0 &&
-  TLS_KEY_PATH.length > 0;
-
-if (tlsEnabled) {
-  if (!existsSync(TLS_CERT_PATH)) {
-    throw new Error(`Certificado TLS não encontrado: ${TLS_CERT_PATH}`);
-  }
-
-  if (!existsSync(TLS_KEY_PATH)) {
-    throw new Error(`Chave TLS não encontrada: ${TLS_KEY_PATH}`);
-  }
-
-  const tlsOptions = {
-    cert: readFileSync(TLS_CERT_PATH),
-    key: readFileSync(TLS_KEY_PATH)
+          await pipelineService.processUploadedFile(
+            fullPath,
+            user.ip,
+            targetFolder,
+            user,
+          );
+        } catch (error) {
+          console.error("[Varredura]", error);
+        } finally {
+          processingFiles.delete(fullPath);
+        }
+      }, 1000);
+    }
   };
 
-  https.createServer(tlsOptions, app).listen(
-    PORT,
-    "0.0.0.0",
-    () => {
+  visit(UPLOADS_ROOT);
+}
+
+pipelineService.rebuildManifest();
+
+if (process.env.MODEL_PRELOAD === "1") {
+  geminiService.warmup(info => {
+    if (info?.status === "progress") {
       console.log(
-        `[Server] Web UI e REST API HTTPS rodando em https://0.0.0.0:${PORT}`
+        `[Modelo] ${info.file || "arquivo"}: ` +
+        `${Math.round(Number(info.progress) || 0)}%`,
       );
     }
+  }).catch(error => console.error("[Modelo] Pré-carga falhou:", error));
+}
+
+const tlsEnabled =
+  TLS_CERT_PATH &&
+  TLS_KEY_PATH &&
+  existsSync(TLS_CERT_PATH) &&
+  existsSync(TLS_KEY_PATH);
+
+if (!tlsEnabled && !ALLOW_INSECURE_HTTP) {
+  throw new Error(
+    "TLS é obrigatório. Execute install-service.sh para gerar o certificado " +
+    "ou use ALLOW_INSECURE_HTTP=1 somente em desenvolvimento isolado.",
   );
-} else {
-  app.listen(PORT, "0.0.0.0", () => {
-    console.log(
-      `[Server] Web UI e REST API HTTP rodando em http://0.0.0.0:${PORT}`
-    );
+}
+
+const httpServer = tlsEnabled
+  ? https.createServer(
+      {
+        cert: readFileSync(TLS_CERT_PATH),
+        key: readFileSync(TLS_KEY_PATH),
+      },
+      app,
+    )
+  : http.createServer(app);
+
+httpServer.listen(PORT, "0.0.0.0", () => {
+  console.log(
+    `[Server] ${tlsEnabled ? "HTTPS" : "HTTP inseguro"} em ` +
+    `${tlsEnabled ? "https" : "http"}://0.0.0.0:${PORT}`,
+  );
+});
+
+app.use((error, _req, res, _next) => {
+  console.error("[API]", error);
+  if (!res.headersSent) {
+    res.status(400).json({ error: error.message || "Requisição inválida." });
+  }
+});
+
+ftpServer = createSecureFtpServer();
+if (ftpServer) {
+  ftpServer.listen().then(() => {
+    console.log(`[Server] FTPS em ftps://0.0.0.0:${FTP_PORT}`);
   });
 }
 
-ftpServer.listen().then(() => {
-  console.log(`[Server] Servidor FTP rodando em ftp://0.0.0.0:${FTP_PORT}`);
-});
+setInterval(periodicFolderScan, 15000).unref();
 
-// Varredura a cada 15 segundos
-setInterval(periodicFolderScan, 15000);
+function shutdown(signal) {
+  console.log(`[Server] Encerrando por ${signal}...`);
+  httpServer.close();
+  Promise.resolve(ftpServer?.close?.()).catch(() => {});
+  setTimeout(() => process.exit(0), 1500).unref();
+}
+
+process.on("SIGINT", () => shutdown("SIGINT"));
+process.on("SIGTERM", () => shutdown("SIGTERM"));

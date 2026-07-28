@@ -1,21 +1,23 @@
 [Unit]
-Description=Servidor Engenharia - RAG, Web & FTP OKF
-After=network-online.target llama-server.service
+Description=Central de Engenharia — HTTPS, FTPS, OKF e Transformers.js
+After=network-online.target
 Wants=network-online.target
-Requires=llama-server.service
 
 [Service]
 Type=simple
-User=icarogdo
-WorkingDirectory=/home/icarogdo/dev/engenharia
+WorkingDirectory=__PROJECT_DIR__
+EnvironmentFile=__ENV_FILE__
 ExecStart=/usr/bin/node server.js
 Restart=on-failure
-RestartSec=3
-Environment=NODE_ENV=production
-Environment=PORT=3001
-Environment=FTP_PORT=2122
-Environment=LLAMA_BASE_URL=http://127.0.0.1:1223/v1
-Environment=LLAMA_MODEL=google/gemma-4-e4b
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=read-only
+ReadWritePaths=__PROJECT_DIR__/okf __PROJECT_DIR__/.cache
+StandardOutput=journal
+StandardError=journal
 
 [Install]
 WantedBy=default.target

@@ -1,149 +1,98 @@
-# Maximus Engenharia Inteligente
+# Maximus — Central Local de Engenharia
 
-**Conhecimento técnico transformado em decisão.**
+Servidor local para organização de documentos técnicos, OKF, tarefas, upload
+HTTP/FTPS e assistência por modelo executado na própria máquina.
 
-PWA de inteligência técnica local para a Maximus Empreendimentos. O Gemma 4 E2B é executado no dispositivo com LiteRT-LM, enquanto artefatos, usuários e documentos OKF ficam em um repositório privado no GitHub.
+## Componentes
 
-## Repositórios padrão
+- Node.js 22+ e Express;
+- SQLite local;
+- HTTPS e FTPS;
+- token de acesso vinculado ao endereço físico observado da máquina;
+- Transformers.js 4.2;
+- modelo principal `onnx-community/gemma-3-1b-it-ONNX`, Q4;
+- fallback `onnx-community/Qwen2.5-0.5B-Instruct`;
+- pipeline PDF/TXT/Markdown → OKF;
+- interface web em `public/`.
 
-- frontend público: `maximus-engenharia-inteligente`;
-- base privada: `maximus-engenharia-inteligente-data`;
-- endereço do Pages: `https://SEU_USUARIO.github.io/maximus-engenharia-inteligente/`.
-
-O script de publicação pode renomear automaticamente os repositórios antigos `okf-chat-web` e `okf-chat-data`.
-
-## Funcionalidades
-
-- chave GitHub protegida no dispositivo;
-- login e cadastro por identificador Maximus;
-- identificador único no formato `MAX-USR-XXXXXXXXXXXX`;
-- confirmação de e-mail emitida por GitHub Actions e SMTP;
-- áreas individuais para artefatos e conhecimento estruturado;
-- upload de arquivos;
-- chat técnico fundamentado na base autorizada;
-- ferramentas RLM controladas;
-- aprovação antes de qualquer gravação;
-- modelo Gemma 4 armazenado no OPFS;
-- instalação como PWA.
-
-## Instalar no dispositivo
-
-Depois que a aplicação estiver aberta e pronta:
-
-1. clique em **Instalar aplicativo** na área lateral;
-2. confirme a instalação apresentada pelo navegador;
-3. caso a janela não apareça, abra o menu **⋮** do Chromium;
-4. escolha **Instalar Maximus Intelligence**.
-
-O botão e essa instrução também aparecem dentro da interface.
-
-## Preparar o ambiente no Manjaro
+## Instalação
 
 ```bash
-sudo pacman -S --needed git github-cli nodejs npm chromium vulkan-tools rsync
-
-gh auth login
-vulkaninfo --summary
+git clone git@github.com:glaucodeveloper/maximus-assistente-deredelocal.git
+cd maximus-assistente-deredelocal
+chmod +x install-service.sh
+./install-service.sh
 ```
 
-Confira o WebGPU em `chrome://gpu`.
+O instalador:
 
-## Compilar e publicar tudo
+1. gera certificado TLS local;
+2. instala dependências;
+3. valida o código;
+4. executa testes;
+5. prepara o modelo;
+6. instala o serviço systemd do usuário;
+7. emite o primeiro token de pareamento.
+
+Acesse `https://<endereço-do-servidor>:3001`.
+
+## Pareamento
+
+O token administrativo de pareamento é usado uma vez. Após o cadastro, a
+aplicação recebe um token de acesso que somente funciona junto ao endereço da
+máquina observado pelo servidor.
 
 ```bash
-cd maximus-engenharia-inteligente-pwa
-./scripts/build-and-publish.sh
+npm run pairing:issue -- --hours 24
+npm run devices:list
+npm run device:revoke -- DEV-...
+npm run pairing:issue -- --user USR-... --hours 24
 ```
 
-Variáveis opcionais:
+Consulte [SECURITY.md](SECURITY.md).
+
+## Modelo local
 
 ```bash
-GITHUB_OWNER=glaucodeveloper \
-WEB_REPO=maximus-engenharia-inteligente \
-DATA_REPO=maximus-engenharia-inteligente-data \
-RENAME_EXISTING=1 \
-./scripts/build-and-publish.sh
+npm run model:prepare
 ```
 
-O script:
+Configuração em `~/.config/engenharia/engenharia.env`:
 
-1. renomeia ou cria os dois repositórios;
-2. atualiza `public/app-config.json`;
-3. instala as dependências pelo registry público;
-4. valida e compila o PWA;
-5. envia o frontend;
-6. ativa o GitHub Pages por Actions;
-7. instala o workflow de confirmação no repositório privado.
-
-## Configurar confirmação de e-mail
-
-No repositório privado de dados, abra:
-
-`Settings → Secrets and variables → Actions`
-
-Crie:
-
-- `SMTP_HOST`;
-- `SMTP_PORT`;
-- `SMTP_USERNAME`;
-- `SMTP_PASSWORD`;
-- `SMTP_FROM`.
-
-O workflow fica em `.github/workflows/confirm-email.yml` no repositório de dados.
-
-A implementação é adequada para um ambiente privado controlado. A solicitação temporária contém o link de confirmação no histórico privado do Git até ser removida da branch. Para autenticação pública de alta segurança, substitua esse fluxo por um serviço de identidade ou backend dedicado.
-
-## Desenvolvimento
-
-```bash
-npm ci --registry=https://registry.npmjs.org
-npm run doctor
-npm run validate
-npm run dev
+```dotenv
+MODEL_ID=onnx-community/gemma-3-1b-it-ONNX
+MODEL_FALLBACK_ID=onnx-community/Qwen2.5-0.5B-Instruct
+MODEL_DTYPE=q4
+MODEL_DEVICE=
+MODEL_CACHE_DIR=/caminho/do/projeto/.cache/transformers
 ```
 
-## Gerar um ZIP
+`MODEL_DEVICE` vazio usa o backend de CPU do Node. O primeiro carregamento
+baixa e armazena o modelo no cache local.
 
-```bash
-npm run package
+## Dados
+
+Os seguintes artefatos são locais e não devem entrar no Git:
+
+```text
+okf/db.sqlite*
+okf/manifest.json
+okf/uploads_raw/
+okf/knowledge/
+.cache/
+.env*
 ```
 
-O script usa `zip` quando disponível e recorre ao Python quando o pacote `zip` não está instalado.
+O commit `0beadbfd...` incluiu arquivos SQLite. Removê-los em outro commit não
+os apaga do histórico. Use `scripts/purge-sensitive-history.sh` após revisar o
+backup e entender o force-push.
 
-## Segurança
+## Limitações
 
-Use um fine-grained personal access token limitado exclusivamente ao repositório privado de dados, com `Contents: Read and write`. O token não é entregue ao modelo. Quem possui acesso administrativo ao repositório de dados consegue consultar todos os namespaces.
+O vínculo pelo MAC/endereço físico funciona no mesmo segmento de rede local.
+Ele não substitui certificado de cliente ou WebAuthn contra um atacante com
+controle administrativo da máquina e da rede.
 
-
-## Correção 1.0.1
-
-- serializa a inicialização do LiteRT-LM para evitar múltiplos ambientes WebGPU;
-- limita a janela de geração a 2048 tokens no navegador;
-- detecta fluxos compostos por `<pad>`, cancela a sessão e tenta uma conversa nova uma vez;
-- apresenta erro acionável se o acelerador continuar produzindo token 0;
-- versiona o arquivo do modelo no OPFS, forçando novo download após a atualização;
-- corrige o service worker para clonar respostas antes do consumo e não cachear modelos ou requisições Range.
-
-
-## Correção 1.0.2 — proteção contra tokens internos
-
-A versão 1.0.2 valida o modelo antes de liberar o chat. Tokens internos como `<pad>`, ciclos de repetição e respostas vazias são interrompidos dentro da camada de geração e nunca são enviados para a interface. Quando o teste falha, o modelo local é removido e a inteligência fica desativada até uma nova preparação.
-
-Para atualizar o repositório de engenharia já publicado:
-
-```bash
-chmod +x scripts/update-engineering-repo.sh
-./scripts/update-engineering-repo.sh
-```
-
-O script renomeia `okf-chat-web` para `maximus-engenharia-inteligente` quando necessário, compila, valida, envia a atualização e configura o GitHub Pages para GitHub Actions.
-
-## Atualização 1.0.3
-
-O script `scripts/update-engineering-repo.sh` publica por meio de um checkout temporário limpo. Ele não tenta mesclar o histórico remoto dentro da pasta extraída, evitando o erro “untracked working tree files would be overwritten by merge”.
-
-O repositório padrão é `maximus-assistente-deredelocal`. Para outro nome:
-
-```bash
-WEB_REPO=maximus-engenharia-inteligente ./scripts/update-engineering-repo.sh
-```
+O pacote `ftp-srv` possui manutenção pouco frequente. FTPS fica protegido por
+TLS e pode ser desativado com `FTP_ENABLED=0`. Para exposição fora da LAN,
+prefira SFTPGo/OpenSSH e um gateway de autenticação dedicado.

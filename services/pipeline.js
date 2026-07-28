@@ -1,117 +1,179 @@
-import { readFileSync, writeFileSync, mkdirSync, renameSync, existsSync } from "node:fs";
-import { resolve, basename, extname } from "node:path";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  writeFileSync,
+} from "node:fs";
+import { execFileSync } from "node:child_process";
+import { createHash } from "node:crypto";
+import { basename, extname, resolve } from "node:path";
 import pdfParse from "pdf-parse";
 import { db } from "./db.js";
 import { geminiService } from "./gemini.js";
 
-// Garante que diretórios do OKF existem
 mkdirSync("okf/knowledge", { recursive: true });
 mkdirSync("okf/uploads_raw/.archive", { recursive: true });
 
-/**
- * Lê o arquivo /proc/net/arp no Linux para capturar o MAC Address associado ao IP do cliente.
- */
-export function getMacFromIp(ip) {
-  const normalizedIp = ip.replace(/^::ffff:/, "").trim();
-  if (normalizedIp === "127.0.0.1" || normalizedIp === "::1" || normalizedIp === "localhost") {
-    return "00:00:00:00:00:00"; // Localhost
-  }
+function normalizeIp(value) {
+  const normalized = String(value || "").trim().replace(/^::ffff:/, "");
+  return normalized === "::1" ? "127.0.0.1" : normalized;
+}
+
+function validMac(value) {
+  const mac = String(value || "").trim().toLowerCase();
+  if (!/^([a-f0-9]{2}:){5}[a-f0-9]{2}$/.test(mac)) return null;
+  if (mac === "00:00:00:00:00:00" || mac === "ff:ff:ff:ff:ff:ff") return null;
+  return mac;
+}
+
+function localMachineAddress() {
   try {
-    const arpData = readFileSync("/proc/net/arp", "utf8");
-    const lines = arpData.split("\n");
-    for (const line of lines) {
-      const parts = line.split(/\s+/);
-      if (parts.length >= 4 && parts[0] === normalizedIp) {
-        return parts[3].toLowerCase(); // MAC Address (e.g. 42:31:3b:f1:2b:08)
-      }
+    const machineId = readFileSync("/etc/machine-id", "utf8").trim();
+    if (machineId) {
+      return `local:${createHash("sha256").update(machineId).digest("hex").slice(0, 32)}`;
     }
-  } catch (e) {
-    console.error(`[ARP] Não foi possível ler /proc/net/arp: ${e.message}`);
+  } catch {
+    // Ambiente sem /etc/machine-id.
   }
-  // Fallback determinístico para desenvolvimento local sem vizinhos ARP ativos
-  const hex = Buffer.from(normalizedIp).toString("hex").slice(-12).padEnd(12, "0");
-  const formatted = hex.match(/.{1,2}/g).join(":");
-  return `02:00:00:${formatted.slice(9)}`;
+  return null;
 }
 
 /**
- * Gera um nome amigável para a url (slug)
+ * Resolve o endereço físico observado pelo servidor.
+ *
+ * Esse vínculo funciona quando cliente e servidor estão no mesmo segmento L2.
+ * Em VPN, NAT, proxy ou redes roteadas, o endereço pode não estar disponível.
  */
+export function getMacFromIp(ip) {
+  const normalizedIp = normalizeIp(ip);
+  if (
+    normalizedIp === "127.0.0.1" ||
+    normalizedIp === "localhost" ||
+    normalizedIp === ""
+  ) {
+    return localMachineAddress();
+  }
+
+  try {
+    const arpData = readFileSync("/proc/net/arp", "utf8");
+    for (const line of arpData.split("\n").slice(1)) {
+      const parts = line.trim().split(/\s+/);
+      if (parts[0] === normalizedIp) {
+        const mac = validMac(parts[3]);
+        if (mac) return mac;
+      }
+    }
+  } catch {
+    // Tenta ip neigh abaixo.
+  }
+
+  try {
+    const output = execFileSync(
+      "ip",
+      ["neigh", "show", normalizedIp],
+      { encoding: "utf8", timeout: 1500 },
+    );
+    const match = output.match(/\blladdr\s+(([a-f0-9]{2}:){5}[a-f0-9]{2})\b/i);
+    const mac = validMac(match?.[1]);
+    if (mac) return mac;
+  } catch {
+    // Endereço não está na tabela de vizinhos.
+  }
+
+  return null;
+}
+
 function slugify(text) {
-  return text
-    .toString()
-    .toLowerCase()
+  return String(text || "")
     .normalize("NFD")
-    .replace(/[̀-ͯ]/g, "") // Remove acentos
-    .replace(/[^a-z0-9]+/g, "-") // Substitui espaços e especiais por hifens
-    .replace(/^-+|-+$/g, ""); // Remove hifens no início ou fim
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 100) || "documento";
+}
+
+function uniqueFinalPath(title, sourceName) {
+  const stem = slugify(title || sourceName.replace(/\.[^/.]+$/, ""));
+  let candidate = resolve("okf/knowledge", `${stem}.md`);
+  if (!existsSync(candidate)) return candidate;
+
+  const suffix = createHash("sha256")
+    .update(`${sourceName}:${Date.now()}`)
+    .digest("hex")
+    .slice(0, 8);
+  candidate = resolve("okf/knowledge", `${stem}-${suffix}.md`);
+  return candidate;
+}
+
+function safeArchiveName(fileName) {
+  const cleaned = basename(fileName)
+    .replace(/[^A-Za-z0-9._-]+/g, "-")
+    .slice(0, 180);
+  return `${Date.now()}-${cleaned || "arquivo"}`;
 }
 
 export const pipelineService = {
-  /**
-   * Processa e padroniza um arquivo de upload bruto.
-   */
-  async processUploadedFile(rawFilePath, clientIp, targetUsernameFolder = null) {
-    console.log(`[Pipeline] Processando arquivo: ${rawFilePath} de IP: ${clientIp}`);
-    const fileName = basename(rawFilePath);
+  async processUploadedFile(
+    rawFilePath,
+    clientIp,
+    targetUsernameFolder = null,
+    authenticatedUser = null,
+  ) {
+    const absoluteRawPath = resolve(rawFilePath);
+    if (!existsSync(absoluteRawPath)) {
+      return { success: false, error: "Arquivo de origem não encontrado." };
+    }
+
+    const fileName = basename(absoluteRawPath);
     const extension = extname(fileName).toLowerCase();
 
-    // 1. Identifica o Usuário associado ao IP
-    let user = db.getUserByIp(clientIp);
+    let user = authenticatedUser;
+    if (!user && targetUsernameFolder) {
+      user = db.getUserByUsername(targetUsernameFolder);
+    }
     if (!user) {
-      // Se não houver usuário cadastrado naquele IP, busca o usuário associado à pasta destino
-      if (targetUsernameFolder) {
-        user = db.getUserByUsername(targetUsernameFolder);
-      }
-
-      // Se ainda sim não houver, cria um perfil genérico temporário
-      if (!user) {
-        const mac = getMacFromIp(clientIp);
-        user = db.createUser({
-          mac,
-          ip: clientIp,
-          name: targetUsernameFolder || `Usuário de ${clientIp.replace(/^::ffff:/, "")}`,
-          role: "Colaborador",
-          sector: "Geral"
-        });
-      }
+      user = db.getUserByIp(clientIp);
+    }
+    if (!user) {
+      return {
+        success: false,
+        error: "Não foi possível associar o arquivo a um usuário pareado.",
+      };
     }
 
     try {
       let extractedText = "";
 
-      // 2. Extrai texto de acordo com a extensão do arquivo
       if (extension === ".pdf") {
-        const fileBuffer = readFileSync(rawFilePath);
-        const pdfData = await pdfParse(fileBuffer);
+        const pdfData = await pdfParse(readFileSync(absoluteRawPath));
         extractedText = pdfData.text;
-      } else if (extension === ".txt" || extension === ".md") {
-        extractedText = readFileSync(rawFilePath, "utf8");
+      } else if ([".txt", ".md", ".markdown", ".csv", ".json"].includes(extension)) {
+        extractedText = readFileSync(absoluteRawPath, "utf8");
       } else {
-        // Para arquivos não textuais ou desconhecidos, cria um documento apenas com metadados do arquivo original
-        extractedText = `Arquivo binário técnico enviado. Nome: ${fileName}. Tamanho: ${readFileSync(rawFilePath).length} bytes.`;
+        extractedText =
+          `Arquivo técnico binário. Nome: ${fileName}. ` +
+          `Tamanho: ${readFileSync(absoluteRawPath).length} bytes.`;
       }
 
-      if (!extractedText || extractedText.trim().length === 0) {
-        extractedText = `Arquivo técnico ${fileName} sem conteúdo legível por texto direto.`;
+      if (!extractedText.trim()) {
+        extractedText = `Arquivo técnico ${fileName} sem texto diretamente extraível.`;
       }
 
-      // 3. Executa padronização com Gemini IA
       const standardization = await geminiService.standardizeDocument({
         text: extractedText,
         fileName,
-        author: user
+        author: user,
       });
 
-      // 4. Salva o novo arquivo markdown final padronizado no diretório OKF
-      const slugTitle = slugify(standardization.title || fileName.replace(/\.[^/.]+$/, ""));
-      const finalFileName = `${slugTitle}.md`;
-      const finalPath = resolve("okf/knowledge", finalFileName);
+      const finalPath = uniqueFinalPath(standardization.title, fileName);
+      const finalFileName = basename(finalPath);
+      writeFileSync(finalPath, standardization.markdown, {
+        encoding: "utf8",
+        mode: 0o600,
+      });
 
-      writeFileSync(finalPath, standardization.markdown, "utf8");
-      console.log(`[Pipeline] Documento padronizado salvo: ${finalPath}`);
-
-      // 5. Registra o documento no banco de dados SQLite
       db.createDocument({
         path: `knowledge/${finalFileName}`,
         title: standardization.title,
@@ -120,15 +182,14 @@ export const pipelineService = {
         authorName: user.name,
         authorRole: user.role,
         sourceFile: fileName,
-        uploadedByMac: user.mac
+        uploadedByMac: user.mac,
       });
 
-      // 6. Move o arquivo original para o diretório .archive para limpar a pasta FTP de uploads ativos
-      const archivePath = resolve("okf/uploads_raw/.archive", `${Date.now()}-${fileName}`);
-      renameSync(rawFilePath, archivePath);
-      console.log(`[Pipeline] Arquivo bruto arquivado em: ${archivePath}`);
-
-      // 7. Atualiza o manifesto central do OKF para acesso rápido e compatibilidade
+      const archivePath = resolve(
+        "okf/uploads_raw/.archive",
+        safeArchiveName(fileName),
+      );
+      renameSync(absoluteRawPath, archivePath);
       this.rebuildManifest();
 
       return {
@@ -138,24 +199,21 @@ export const pipelineService = {
           title: standardization.title,
           description: standardization.description,
           tags: standardization.tags,
-          author: `${user.name} (${user.role})`
-        }
+          author: `${user.name} (${user.role})`,
+        },
       };
-    } catch (e) {
-      console.error(`[Pipeline] Erro ao processar arquivo ${fileName}:`, e);
-      return { success: false, error: e.message };
+    } catch (error) {
+      console.error(`[Pipeline] Erro ao processar ${fileName}:`, error);
+      return { success: false, error: error.message };
     }
   },
 
-  /**
-   * Reconstrói o manifest.json unificado dos documentos OKF para busca e indexação rápidos.
-   */
   rebuildManifest() {
     try {
       const documentsList = db.listDocuments();
       const manifest = {
         format: "engenharia-okf-manifest",
-        publicContractVersion: "1.0.0",
+        publicContractVersion: "1.1.0",
         updatedAt: new Date().toISOString(),
         documents: documentsList.map(doc => ({
           path: doc.path,
@@ -164,23 +222,20 @@ export const pipelineService = {
           tags: doc.tags,
           author: `${doc.author_name} (${doc.author_role})`,
           source_file: doc.source_file,
-          uploaded_at: doc.uploaded_at
-        }))
+          uploaded_at: doc.uploaded_at,
+        })),
       };
-
-      writeFileSync("okf/manifest.json", JSON.stringify(manifest, null, 2), "utf8");
-      console.log(`[Pipeline] Manifesto OKF atualizado com sucesso. Total documentos: ${documentsList.length}`);
-    } catch (e) {
-      console.error("[Pipeline] Erro ao criar manifesto OKF:", e);
+      writeFileSync(
+        "okf/manifest.json",
+        JSON.stringify(manifest, null, 2),
+        { encoding: "utf8", mode: 0o600 },
+      );
+    } catch (error) {
+      console.error("[Pipeline] Erro ao reconstruir o manifesto:", error);
     }
   },
 
-  /**
-   * Varre periodicamente a pasta okf/uploads_raw e processa qualquer arquivo pendente.
-   * Útil para pegar arquivos que foram gravados diretamente no FTP sem disparar o evento,
-   * ou se o servidor FTP foi reiniciado durante um upload parcial.
-   */
   async scanRawUploads() {
-    // Implementado no loop secundário do server.js
-  }
+    // A varredura controlada permanece no server.js.
+  },
 };

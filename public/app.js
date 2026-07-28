@@ -1,3 +1,19 @@
+// AUTENTICAÇÃO LOCAL: token de acesso vinculado ao endereço da máquina
+const DEVICE_TOKEN_KEY = "engenharia.device.access-token";
+const nativeFetch = window.fetch.bind(window);
+
+async function apiFetch(input, init = {}) {
+  const headers = new Headers(init.headers || {});
+  const token = localStorage.getItem(DEVICE_TOKEN_KEY);
+  if (token) headers.set("Authorization", `Bearer ${token}`);
+
+  const response = await nativeFetch(input, { ...init, headers });
+  if (response.status === 401 && token) {
+    localStorage.removeItem(DEVICE_TOKEN_KEY);
+  }
+  return response;
+}
+
 // CENTRAL DE ENGENHARIA — FRONTEND COM ARQUITETURA STATIC NEXT (SEM HELPER / BINDER)
 
 function* AppGenerator({ id }) {
@@ -37,33 +53,64 @@ function* AppGenerator({ id }) {
 
   this.checkUserStatus = async () => {
     try {
-      const res = await fetch("/api/user/me");
-      const user = await res.json();
-      this.next({ user });
-      if (user.registered) {
+      const res = await apiFetch("/api/user/me");
+      if (res.ok) {
+        const user = await res.json();
+        this.next({ user });
         this.loadInitialData();
+        return;
       }
+
+      const statusRes = await nativeFetch("/api/device/status");
+      const status = await statusRes.json();
+      this.next({
+        user: {
+          registered: false,
+          ip: status.ip,
+          mac: status.machineAddress,
+          machineAddress: status.machineAddress,
+          addressAvailable: status.addressAvailable
+        }
+      });
     } catch (e) {
-      console.error("Erro ao checar status do usuário:", e);
+      console.error("Erro ao checar status do dispositivo:", e);
+      this.next({
+        user: {
+          registered: false,
+          ip: "-",
+          mac: null,
+          machineAddress: null,
+          addressAvailable: false
+        }
+      });
     }
   };
 
-  this.registerUser = async (name, role, sector) => {
+  this.registerUser = async (pairingToken, name, role, sector) => {
     try {
-      const res = await fetch("/api/user/register", {
+      const res = await nativeFetch("/api/user/register", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ name, role, sector })
+        body: JSON.stringify({ pairingToken, name, role, sector })
       });
       const data = await res.json();
       if (data.success) {
+        localStorage.setItem(DEVICE_TOKEN_KEY, data.accessToken);
         this.next({ user: { registered: true, ...data.user } });
         this.loadInitialData();
+
+        if (data.ftp?.enabled) {
+          window.prompt(
+            `Pareamento concluído. Copie agora a senha FTPS do usuário ${data.ftp.username}:`,
+            data.accessToken
+          );
+        }
       } else {
-        alert("Erro ao cadastrar dispositivo: " + data.error);
+        alert("Erro ao parear dispositivo: " + data.error);
       }
     } catch (e) {
-      console.error("Erro ao cadastrar:", e);
+      console.error("Erro ao parear:", e);
+      alert("Não foi possível concluir o pareamento.");
     }
   };
 
@@ -76,7 +123,7 @@ function* AppGenerator({ id }) {
 
   this.loadDocuments = async () => {
     try {
-      const res = await fetch("/api/documents");
+      const res = await apiFetch("/api/documents");
       const docs = await res.json();
       this.next({ documents: docs });
     } catch (e) {
@@ -86,7 +133,7 @@ function* AppGenerator({ id }) {
 
   this.loadUsersList = async () => {
     try {
-      const res = await fetch("/api/user/list");
+      const res = await apiFetch("/api/user/list");
       const list = await res.json();
       this.next({ usersList: list });
     } catch (e) {
@@ -96,9 +143,9 @@ function* AppGenerator({ id }) {
 
   this.loadPermissions = async () => {
     try {
-      const pRes = await fetch("/api/permissions/pending");
+      const pRes = await apiFetch("/api/permissions/pending");
       const pending = await pRes.json();
-      const aRes = await fetch("/api/permissions");
+      const aRes = await apiFetch("/api/permissions");
       const all = await aRes.json();
       this.next({ pendingPermissions: pending, allPermissions: all });
     } catch (e) {
@@ -108,7 +155,7 @@ function* AppGenerator({ id }) {
 
   this.loadTasks = async () => {
     try {
-      const res = await fetch("/api/tasks");
+      const res = await apiFetch("/api/tasks");
       const list = await res.json();
       this.next({ tasks: list });
     } catch (e) {
@@ -128,7 +175,7 @@ function* AppGenerator({ id }) {
 
   this.viewDocument = async (docPath) => {
     try {
-      const res = await fetch(`/api/documents/${docPath}`);
+      const res = await apiFetch(`/api/documents/${docPath}`);
       if (!res.ok) throw new Error("Documento indisponível ou inacessível.");
       const content = await res.text();
       const doc = this.state.documents.find(d => d.path === docPath) || { title: "Documento", tags: [], author_name: "-", author_role: "-" };
@@ -165,7 +212,7 @@ function* AppGenerator({ id }) {
     });
 
     try {
-      const res = await fetch("/api/chat", {
+      const res = await apiFetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ question })
@@ -203,7 +250,7 @@ function* AppGenerator({ id }) {
 
   this.requestPermission = async (targetFolder) => {
     try {
-      const res = await fetch("/api/permissions/request", {
+      const res = await apiFetch("/api/permissions/request", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ targetUsername: targetFolder })
@@ -222,7 +269,7 @@ function* AppGenerator({ id }) {
 
   this.respondPermission = async (reqId, status) => {
     try {
-      const res = await fetch("/api/permissions/respond", {
+      const res = await apiFetch("/api/permissions/respond", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ id: reqId, status })
@@ -241,7 +288,7 @@ function* AppGenerator({ id }) {
   this.uploadFile = async (file, targetFolder) => {
     this.next({ isUploading: true });
     try {
-      const res = await fetch("/api/upload", {
+      const res = await apiFetch("/api/upload", {
         method: "POST",
         headers: {
           "X-Filename": file.name,
@@ -278,7 +325,7 @@ function* AppGenerator({ id }) {
     }
 
     try {
-      const res = await fetch("/api/tasks", {
+      const res = await apiFetch("/api/tasks", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -301,7 +348,7 @@ function* AppGenerator({ id }) {
 
   this.updateTaskStatus = async (taskId, status) => {
     try {
-      const res = await fetch(`/api/tasks/${taskId}/status`, {
+      const res = await apiFetch(`/api/tasks/${taskId}/status`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status })
@@ -319,8 +366,15 @@ function* AppGenerator({ id }) {
   setTimeout(this.checkUserStatus, 0);
 
   // --- PARSE DE MARKDOWN BÁSICO NATIVO ---
+  const escapeHtml = (value) => String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#039;");
+
   const renderMarkdown = (md) => {
-    let html = md
+    let html = escapeHtml(md)
       .replace(/^---[\s\S]*?---/g, "") // Remove YAML frontmatter
       .replace(/# (.*)/g, '<h1 class="text-xl font-bold text-slate-900 border-b pb-2 mb-4 mt-6">$1</h1>')
       .replace(/## (.*)/g, '<h2 class="text-base font-bold text-slate-800 mb-2 mt-5">$1</h2>')
@@ -429,12 +483,17 @@ function* AppGenerator({ id }) {
                       <option value="Geral">Geral / Administrativo</option>
                     </select>
                   </div>
+                  <div>
+                    <label class="block text-xs font-bold text-slate-700 mb-1">Token de Pareamento</label>
+                    <input id="reg-pairing-token" type="password" autocomplete="one-time-code" placeholder="mxp_..." class="w-full px-4 py-3 rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-blue-500 text-xs font-mono">
+                    <p class="text-[10px] text-slate-500 mt-1">O token é usado uma vez e fica vinculado ao endereço desta máquina.</p>
+                  </div>
                   <div class="p-3 bg-slate-50 rounded-xl border border-slate-100 flex flex-col gap-1 text-[10px] text-slate-500 font-mono">
                     <div class="flex justify-between"><span>IP:</span><span>${s.user ? s.user.ip : '-'}</span></div>
-                    <div class="flex justify-between"><span>MAC:</span><span>${s.user ? s.user.mac : '-'}</span></div>
+                    <div class="flex justify-between"><span>Endereço:</span><span>${s.user ? (s.user.machineAddress || s.user.mac || "-") : "-"}</span></div>
                   </div>
                 </div>
-                <button onclick="const el = document.getElementById('${this.id}').component; el.registerUser(document.getElementById('reg-name').value, document.getElementById('reg-role').value, document.getElementById('reg-sector').value)" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition duration-200 flex items-center justify-center gap-2 shadow-lg shadow-blue-500/10 text-xs">
+                <button onclick="const el = document.getElementById('${this.id}').component; el.registerUser(document.getElementById('reg-pairing-token').value, document.getElementById('reg-name').value, document.getElementById('reg-role').value, document.getElementById('reg-sector').value)" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-3 rounded-xl transition duration-200 flex items-center justify-center gap-2 shadow-lg shadow-blue-500/10 text-xs">
                   <i data-lucide="check" class="w-4 h-4"></i> Concluir Cadastro
                 </button>
               </div>

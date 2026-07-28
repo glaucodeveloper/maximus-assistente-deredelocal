@@ -1,43 +1,112 @@
-#!/bin/bash
-# Script de instalação do serviço systemd para a Central de Engenharia
+#!/usr/bin/env bash
+set -Eeuo pipefail
 
-# Cores para output
-GREEN='\033[0;32m'
-RED='\033[0;31m'
-NC='\033[0m' # No Color
+ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/engenharia"
+SYSTEMD_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
+ENV_FILE="$CONFIG_DIR/engenharia.env"
+TLS_DIR="$CONFIG_DIR/tls"
+CERT_FILE="$TLS_DIR/server.crt"
+KEY_FILE="$TLS_DIR/server.key"
+SERVICE_TARGET="$SYSTEMD_DIR/engenharia.service"
 
-echo -e "${GREEN}[Engenharia] Iniciando instalação do serviço de inicialização (systemd)...${NC}"
+PORT="${ENGINEERING_PORT:-3001}"
+FTP_PORT="${ENGINEERING_FTP_PORT:-2122}"
+FTP_ENABLED="${FTP_ENABLED:-1}"
+PREPARE_MODEL="${PREPARE_MODEL:-1}"
+ISSUE_INITIAL_TOKEN="${ISSUE_INITIAL_TOKEN:-1}"
 
-SERVICE_FILE="/home/icarogdo/dev/engenharia/engenharia.service"
-TARGET_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/systemd/user"
-TARGET_FILE="$TARGET_DIR/engenharia.service"
-ENGINEERING_PORT="${ENGINEERING_PORT:-3001}"
-ENGINEERING_FTP_PORT="${ENGINEERING_FTP_PORT:-2122}"
+for command in node npm openssl systemctl; do
+  command -v "$command" >/dev/null 2>&1 || {
+    printf 'Erro: comando ausente: %s\n' "$command" >&2
+    exit 1
+  }
+done
 
-if [ ! -f "$SERVICE_FILE" ]; then
-  echo -e "${RED}[Erro] Arquivo engenharia.service não encontrado em /home/icarogdo/dev/engenharia/${NC}"
+node_major="$(node -p 'Number(process.versions.node.split(".")[0])')"
+if ((node_major < 22)); then
+  printf 'Erro: Node.js 22 ou superior é necessário; atual: %s\n' "$(node --version)" >&2
   exit 1
 fi
 
-mkdir -p "$TARGET_DIR"
-echo -e "${GREEN}[Engenharia] Instalando serviço no escopo do usuário...${NC}"
-sed -e "s/^Environment=PORT=.*/Environment=PORT=$ENGINEERING_PORT/" \
-    -e "s/^Environment=FTP_PORT=.*/Environment=FTP_PORT=$ENGINEERING_FTP_PORT/" \
-    "$SERVICE_FILE" > "$TARGET_FILE"
+mkdir -p "$CONFIG_DIR" "$TLS_DIR" "$SYSTEMD_DIR"
+chmod 700 "$CONFIG_DIR" "$TLS_DIR"
 
-echo -e "${GREEN}[Engenharia] Recarregando o daemon do systemd do usuário...${NC}"
-systemctl --user daemon-reload
+if [[ ! -s "$CERT_FILE" || ! -s "$KEY_FILE" ]]; then
+  printf '==> Gerando certificado TLS local\n'
+  host_name="$(hostname)"
+  local_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  san="DNS:$host_name,DNS:localhost,IP:127.0.0.1"
+  [[ -n "$local_ip" ]] && san="$san,IP:$local_ip"
 
-echo -e "${GREEN}[Engenharia] Habilitando llama-server e Engenharia no login...${NC}"
-systemctl --user enable llama-server.service engenharia.service
-
-if command -v loginctl >/dev/null 2>&1; then
-  echo -e "${GREEN}[Engenharia] Habilitando o user manager no boot (linger)...${NC}"
-  loginctl enable-linger "$(id -un)" || echo -e "${RED}[Aviso] Não foi possível habilitar linger; o serviço iniciará no login.${NC}"
+  openssl req -x509 -newkey rsa:3072 -sha256 -nodes \
+    -days 825 \
+    -keyout "$KEY_FILE" \
+    -out "$CERT_FILE" \
+    -subj "/CN=$host_name" \
+    -addext "subjectAltName=$san"
+  chmod 600 "$KEY_FILE" "$CERT_FILE"
 fi
 
-echo -e "${GREEN}[Engenharia] Reiniciando o llama-server e a Engenharia agora...${NC}"
-systemctl --user restart engenharia.service
+cat >"$ENV_FILE" <<ENV
+NODE_ENV=production
+PORT=$PORT
+FTP_PORT=$FTP_PORT
+FTP_ENABLED=$FTP_ENABLED
+TLS_CERT_PATH=$CERT_FILE
+TLS_KEY_PATH=$KEY_FILE
+FTP_TLS_CERT_PATH=$CERT_FILE
+FTP_TLS_KEY_PATH=$KEY_FILE
+ALLOW_INSECURE_HTTP=0
+MODEL_ID=onnx-community/gemma-3-1b-it-ONNX
+MODEL_FALLBACK_ID=onnx-community/Qwen2.5-0.5B-Instruct
+MODEL_DTYPE=q4
+MODEL_DEVICE=
+MODEL_CACHE_DIR=$ROOT/.cache/transformers
+MODEL_MAX_NEW_TOKENS=768
+MODEL_MAX_INPUT_CHARS=24000
+MODEL_PRELOAD=1
+MAX_UPLOAD_BYTES=20971520
+ENV
+chmod 600 "$ENV_FILE"
 
-echo -e "${GREEN}[Engenharia] Serviço instalado e iniciado com sucesso! Status atual:${NC}"
-systemctl --user status engenharia.service --no-pager
+printf '==> Instalando dependências\n'
+cd "$ROOT"
+npm install --registry=https://registry.npmjs.org
+npm run check
+npm test
+
+if [[ "$PREPARE_MODEL" == "1" ]]; then
+  printf '==> Preparando o modelo local\n'
+  set -a
+  # shellcheck disable=SC1090
+  source "$ENV_FILE"
+  set +a
+  npm run model:prepare
+fi
+
+sed \
+  -e "s|__PROJECT_DIR__|$ROOT|g" \
+  -e "s|__ENV_FILE__|$ENV_FILE|g" \
+  "$ROOT/engenharia.service" >"$SERVICE_TARGET"
+
+systemctl --user daemon-reload
+systemctl --user enable --now engenharia.service
+
+if command -v loginctl >/dev/null 2>&1; then
+  loginctl enable-linger "$(id -un)" >/dev/null 2>&1 || true
+fi
+
+printf '\nServiço instalado.\n'
+printf 'HTTPS: https://%s:%s\n' "$(hostname)" "$PORT"
+if [[ "$FTP_ENABLED" == "1" ]]; then
+  printf 'FTPS:  ftps://%s:%s\n' "$(hostname)" "$FTP_PORT"
+fi
+printf 'Certificado: %s\n' "$CERT_FILE"
+printf 'Status:\n'
+systemctl --user --no-pager --full status engenharia.service || true
+
+if [[ "$ISSUE_INITIAL_TOKEN" == "1" ]]; then
+  printf '\n==> Token inicial de pareamento\n'
+  npm run pairing:issue -- --hours 24 --note "Instalação inicial"
+fi
