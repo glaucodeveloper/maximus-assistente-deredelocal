@@ -28,6 +28,7 @@ class WorkerClient {
         return;
       }
 
+      if (request.timer) clearTimeout(request.timer);
       this.pending.delete(requestId);
 
       if (type === 'error') {
@@ -43,16 +44,31 @@ class WorkerClient {
 
     this.worker.addEventListener('error', event => {
       const error = new Error(event.message || 'A análise foi interrompida.');
-      for (const request of this.pending.values()) request.reject(error);
+      for (const request of this.pending.values()) {
+        if (request.timer) clearTimeout(request.timer);
+        request.reject(error);
+      }
       this.pending.clear();
     });
   }
 
-  request(type, payload = null, onProgress = null) {
+  request(type, payload = null, onProgress = null, timeoutMs = 0) {
     const requestId = `gemma3-${Date.now()}-${++this.sequence}`;
 
     return new Promise((resolve, reject) => {
-      this.pending.set(requestId, {resolve, reject, onProgress});
+      const request = {resolve, reject, onProgress, timer: null};
+
+      if (timeoutMs > 0) {
+        request.timer = setTimeout(() => {
+          if (!this.pending.has(requestId)) return;
+          this.pending.delete(requestId);
+          reject(new Error(
+            `A operação ${type} não respondeu em ${Math.round(timeoutMs / 1000)} segundos.`
+          ));
+        }, timeoutMs);
+      }
+
+      this.pending.set(requestId, request);
       this.worker.postMessage({requestId, type, payload});
     });
   }
@@ -62,7 +78,12 @@ class WorkerClient {
   }
 
   isCached() {
-    return this.request('cache-status').then(result => Boolean(result?.cached));
+    return this.request('cache-status', null, null, 8000)
+      .then(result => Boolean(result?.cached))
+      .catch(error => {
+        console.warn('[Modelo] Consulta de cache ignorada:', error.message);
+        return false;
+      });
   }
 
   clearCache() {
@@ -144,6 +165,15 @@ function createProgressTracker(onProgress) {
       received = TRANSFORMERS_MODEL.approximateBytes;
       total = TRANSFORMERS_MODEL.approximateBytes;
       ratio = 1;
+    } else if (
+      info.status === 'connection' ||
+      info.status === 'connected' ||
+      info.status === 'initiate' ||
+      info.status === 'download'
+    ) {
+      received = 0;
+      total = TRANSFORMERS_MODEL.approximateBytes;
+      ratio = lastRatio;
     } else {
       return;
     }
@@ -156,6 +186,8 @@ function createProgressTracker(onProgress) {
       total,
       ratio,
       percent: Math.round(ratio * 100),
+      status: info.status || 'progress',
+      file: String(info.file || info.name || ''),
     });
   };
 }
@@ -172,6 +204,16 @@ export async function hasCompleteMarker() {
 }
 
 export async function prepareTransformersModel({onProgress = () => {}} = {}) {
+  if (!('Worker' in globalThis)) {
+    throw new Error('Este navegador não oferece Web Worker.');
+  }
+
+  if (!('caches' in globalThis)) {
+    throw new Error(
+      'O Cache API não está disponível. Abra a aplicação por HTTPS ou por localhost.'
+    );
+  }
+
   await navigator.storage?.persist?.();
 
   const tracker = createProgressTracker(onProgress);

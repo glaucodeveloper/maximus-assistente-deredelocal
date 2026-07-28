@@ -56,7 +56,8 @@ function* AppGenerator({ id }) {
     modelReady: false,
     modelPreparing: false,
     modelProgress: 0,
-    modelError: ""
+    modelError: "",
+    modelStatus: "Verificando o cache local..."
   };
 
   // --- MÉTODOS ASSÍNCRONOS (PADRÃO NÍVEL 7 - DISPARAM PATCH NO RETORNO) ---
@@ -132,7 +133,8 @@ function* AppGenerator({ id }) {
     this.next({
       modelPreparing: true,
       modelProgress: 0,
-      modelError: ""
+      modelError: "",
+      modelStatus: "Verificando o cache local..."
     });
 
     try {
@@ -141,10 +143,26 @@ function* AppGenerator({ id }) {
       if (!cached) {
         await prepareTransformersModel({
           onProgress: progress => {
+            const labels = {
+              connection: "Conectando ao Hugging Face...",
+              connected: "Conexão estabelecida.",
+              initiate: "Preparando o arquivo...",
+              download: "Iniciando download...",
+              progress: "Baixando o modelo...",
+              done: "Arquivo concluído.",
+              ready: "Inteligência pronta."
+            };
+
+            const file = progress.file
+              ? ` ${progress.file}`
+              : "";
+
             this.next({
               modelPreparing: true,
               modelProgress: progress.percent || 0,
-              modelError: ""
+              modelError: "",
+              modelStatus:
+                `${labels[progress.status] || "Preparando..."}${file}`
             });
           }
         });
@@ -154,14 +172,16 @@ function* AppGenerator({ id }) {
         modelReady: true,
         modelPreparing: false,
         modelProgress: 100,
-        modelError: ""
+        modelError: "",
+        modelStatus: "Inteligência local pronta."
       });
     } catch (error) {
       console.error("Erro ao preparar inteligência local:", error);
       this.next({
         modelReady: false,
         modelPreparing: false,
-        modelError: error.message || "Falha ao baixar o modelo local."
+        modelError: error.message || "Falha ao baixar o modelo local.",
+        modelStatus: "Preparação interrompida."
       });
     }
   };
@@ -601,7 +621,7 @@ function* AppGenerator({ id }) {
                 </div>
 
                 <div class="flex justify-between text-[10px] text-slate-500 mb-5">
-                  <span>${s.modelPreparing ? "Baixando e preparando..." : (s.modelError ? "Preparação interrompida" : "Verificando cache...")}</span>
+                  <span>${s.modelStatus || (s.modelPreparing ? "Baixando e preparando..." : "Verificando cache...")}</span>
                   <span>${s.modelProgress || 0}%</span>
                 </div>
 

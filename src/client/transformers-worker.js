@@ -6,6 +6,8 @@ const MODEL_DEVICE = 'wasm';
 const MODEL_REVISION = '9909734e10b2001ee7de4a1ca33c9cfbe66ad30b';
 const CACHE_KEY = 'maximus-engenharia-gemma3-uint8-9909734-cache';
 const TASK = 'text-generation';
+const MODEL_CONFIG_URL =
+  `https://huggingface.co/${MODEL_ID}/resolve/${MODEL_REVISION}/config.json`;
 
 const MODEL_OPTIONS = Object.freeze({
   dtype: MODEL_DTYPE,
@@ -46,6 +48,47 @@ function extractAssistantText(output) {
   throw new Error('A análise não produziu uma resposta reconhecível.');
 }
 
+
+async function verifyRemoteModel(requestId) {
+  post(requestId, 'progress', {
+    status: 'connection',
+    file: 'Hugging Face',
+  });
+
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), 20000);
+
+  try {
+    const response = await fetch(MODEL_CONFIG_URL, {
+      method: 'GET',
+      cache: 'no-store',
+      signal: controller.signal,
+    });
+
+    if (!response.ok) {
+      throw new Error(
+        `Hugging Face respondeu HTTP ${response.status} ao consultar o modelo.`
+      );
+    }
+
+    await response.arrayBuffer();
+
+    post(requestId, 'progress', {
+      status: 'connected',
+      file: 'config.json',
+    });
+  } catch (error) {
+    if (error?.name === 'AbortError') {
+      throw new Error(
+        'A conexão com o Hugging Face excedeu 20 segundos. Verifique internet, DNS ou firewall.'
+      );
+    }
+    throw error;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function ensureGenerator(requestId) {
   if (!legacyCachesCleared && 'caches' in self) {
     await Promise.all([
@@ -56,6 +99,8 @@ async function ensureGenerator(requestId) {
   }
 
   if (!generatorPromise) {
+    await verifyRemoteModel(requestId);
+
     generatorPromise = pipeline(
       TASK,
       MODEL_ID,

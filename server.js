@@ -53,13 +53,6 @@ const app = express();
 app.disable("x-powered-by");
 app.set("trust proxy", false);
 app.use(express.json({ limit: "256kb" }));
-app.use(express.static("public", {
-  dotfiles: "deny",
-  etag: true,
-  maxAge: process.env.NODE_ENV === "production" ? "1h" : 0,
-  index: "index.html",
-}));
-
 app.use((req, res, next) => {
   res.setHeader("X-Content-Type-Options", "nosniff");
   res.setHeader("X-Frame-Options", "DENY");
@@ -71,7 +64,8 @@ app.use((req, res, next) => {
       "script-src 'self' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data:",
-      "connect-src 'self'",
+      "connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.xethub.hf.co",
+      "worker-src 'self' blob:",
       "font-src 'self' data:",
       "frame-ancestors 'none'",
       "base-uri 'self'",
@@ -80,6 +74,13 @@ app.use((req, res, next) => {
   );
   next();
 });
+
+app.use(express.static("public", {
+  dotfiles: "deny",
+  etag: true,
+  maxAge: process.env.NODE_ENV === "production" ? "1h" : 0,
+  index: "index.html",
+}));
 
 function normalizeIp(value) {
   const normalized = String(value || "").trim().replace(/^::ffff:/, "");
