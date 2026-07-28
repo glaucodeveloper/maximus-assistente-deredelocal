@@ -145,8 +145,7 @@ proc mimeType(path: string): string =
 
 proc childEnvironment(
   c: SetupConfig,
-  githubPat: string,
-  repositoryName: string
+  githubPat: string
 ): StringTableRef =
   result = newStringTable(modeCaseSensitive)
 
@@ -154,7 +153,7 @@ proc childEnvironment(
     result[key] = value
 
   result["GITHUB_PAT"] = githubPat
-  result["REPOSITORY_NAME"] = repositoryName
+  result["REPOSITORY_NAME"] = c.repositoryName
   result["MACHINE_ID"] = c.machineId
   result["MACHINE_MAC"] = c.machineMac
   result["PROJECT_DIR"] = c.projectDir
@@ -172,8 +171,7 @@ proc childEnvironment(
 
 proc startConfiguration(
   c: SetupConfig,
-  githubPat: string,
-  repositoryName: string
+  githubPat: string
 ) =
   if setupProcess != nil and running(setupProcess):
     raise newException(
@@ -188,7 +186,7 @@ proc startConfiguration(
     "progress": 5,
     "message": "Validando o Personal Access Token...",
     "machineId": c.machineId,
-    "repositoryName": repositoryName
+    "repositoryName": c.repositoryName
   }
 
   writeState(c, state)
@@ -198,8 +196,7 @@ proc startConfiguration(
     workingDir = c.projectDir,
     env = childEnvironment(
       c,
-      githubPat,
-      repositoryName
+      githubPat
     ),
     options = {poUsePath, poParentStreams}
   )
@@ -277,8 +274,6 @@ proc main() =
         let input = parseJson(req.body)
         let githubPat =
           input{"githubPat"}.getStr.strip
-        let repositoryName =
-          input{"repositoryName"}.getStr.strip
 
         if githubPat.len < 20:
           await respondJson(req, Http400, %*{
@@ -286,27 +281,9 @@ proc main() =
           })
           return
 
-        if repositoryName.len == 0 or
-            repositoryName.len > 100:
-          await respondJson(req, Http400, %*{
-            "error": "Nome de repositório inválido."
-          })
-          return
-
-        for ch in repositoryName:
-          if not (
-            ch.isAlphaNumeric or
-            ch in {'-', '_', '.'}
-          ):
-            await respondJson(req, Http400, %*{
-              "error": "O repositório contém caracteres inválidos."
-            })
-            return
-
         startConfiguration(
           c,
-          githubPat,
-          repositoryName
+          githubPat
         )
 
         await respondJson(req, Http202, readState(c))

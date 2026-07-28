@@ -80,8 +80,8 @@ function createSetupOverlay(initialStatus) {
           <p class="text-xs leading-relaxed text-blue-950">
             O PAT do GitHub é enviado somente ao servidor Nim local em
             <strong>127.0.0.1</strong> e não é salvo no navegador.
-            O token do Hugging Face foi configurado pelo script local e fica
-            protegido com <strong>systemd-creds</strong>.
+            O token do Hugging Face foi configurado pelo script local.
+            O repositório privado é fixo: <strong>engenharia-data</strong>.
           </p>
         </div>
 
@@ -104,22 +104,6 @@ function createSetupOverlay(initialStatus) {
             </p>
           </div>
 
-          <div>
-            <label for="setup-repository" class="block text-xs font-bold text-slate-700 mb-1.5">
-              Repositório privado de dados
-            </label>
-            <input
-              id="setup-repository"
-              name="repositoryName"
-              type="text"
-              required
-              value="engenharia-data"
-              pattern="[A-Za-z0-9._-]{1,100}"
-              autocomplete="off"
-              class="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-          </div>
-
           <div class="rounded-xl bg-slate-50 border border-slate-200 px-4 py-3">
             <div class="flex justify-between gap-4 text-[10px]">
               <span class="font-bold text-slate-500">Máquina</span>
@@ -134,7 +118,7 @@ function createSetupOverlay(initialStatus) {
             type="submit"
             class="w-full rounded-xl bg-blue-600 hover:bg-blue-700 text-white font-bold text-sm px-5 py-3.5 transition"
           >
-            Validar credenciais e instalar
+            Validar PAT e instalar
           </button>
         </form>
 
@@ -301,8 +285,6 @@ function createSetupOverlay(initialStatus) {
     const payload = {
       githubPat:
         String(formData.get("githubPat") || "").trim(),
-      repositoryName:
-        String(formData.get("repositoryName") || "").trim(),
     };
 
     try {
@@ -339,7 +321,7 @@ function createSetupOverlay(initialStatus) {
       showError(error.message);
       submitButton.disabled = false;
       submitButton.textContent =
-        "Validar credenciais e instalar";
+        "Validar PAT e instalar";
     }
   });
 
@@ -349,7 +331,7 @@ function createSetupOverlay(initialStatus) {
     form.classList.remove("hidden");
     submitButton.disabled = false;
     submitButton.textContent =
-      "Validar credenciais e instalar";
+      "Validar PAT e instalar";
   });
 
   activateButton.addEventListener("click", async () => {

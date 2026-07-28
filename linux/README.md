@@ -18,10 +18,13 @@ Depois, abra:
 http://127.0.0.1:3001
 ```
 
-A interface solicita somente:
+A interface solicita somente o Personal Access Token do GitHub.
 
-- Personal Access Token do GitHub;
-- nome do repositório privado, com padrão `engenharia-data`.
+O repositório privado é fixado internamente como:
+
+```text
+engenharia-data
+```
 
 O PAT do GitHub também é protegido com `systemd-creds` durante a
 configuração e permanece vinculado ao identificador SHA-256 do MAC.
