@@ -2,7 +2,6 @@ import express from "express";
 import http from "node:http";
 import https from "node:https";
 import dotenv from "dotenv";
-import FtpServer from "ftp-srv";
 import {
   basename,
   join,
@@ -28,7 +27,11 @@ const PORT = Number(process.env.PORT) || 3001;
 const FTP_PORT = Number(process.env.FTP_PORT) || 2122;
 const TLS_CERT_PATH = process.env.TLS_CERT_PATH || "";
 const TLS_KEY_PATH = process.env.TLS_KEY_PATH || "";
-const FTP_ENABLED = process.env.FTP_ENABLED === "1";
+/*
+ * A versão 3 usa GitHub privado. O Node permanece apenas como servidor
+ * transitório da interface e nunca deve abrir FTPS.
+ */
+const FTP_ENABLED = false;
 const FTP_TLS_CERT_PATH = process.env.FTP_TLS_CERT_PATH || TLS_CERT_PATH;
 const FTP_TLS_KEY_PATH = process.env.FTP_TLS_KEY_PATH || TLS_KEY_PATH;
 const ALLOW_INSECURE_HTTP = process.env.ALLOW_INSECURE_HTTP === "1";
