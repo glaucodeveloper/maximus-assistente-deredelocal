@@ -1,11 +1,20 @@
 export const TRANSFORMERS_MODEL = Object.freeze({
   id: "onnx-community/gemma-3-1b-it-ONNX",
   dtype: "q4",
-  device: "wasm",
+  device: "webgpu",
   revision: "a58439f40017d3b99c7d378ff525e54e0ba08ebf",
   cacheKey: "maximus-engenharia-gemma3-q4-a58439f-v1-cache",
-  markerKey: "maximus.engenharia.gemma3.q4.a58439f.v1.complete",
+  markerKey: "maximus.engenharia.model.active.v2.complete",
   approximateBytes: 900_000_000,
+});
+
+export const TRANSFORMERS_FALLBACK_MODEL = Object.freeze({
+  id: "onnx-community/Qwen2.5-0.5B-Instruct",
+  dtype: "q8",
+  device: "wasm",
+  revision: "cc5cc01a65cc3ff17bdb73a7de33d879f62599b0",
+  cacheKey: "maximus-engenharia-qwen25-05b-q8-cc5cc01-v1-cache",
+  approximateBytes: 540_000_000,
 });
 
 const ORT_WASM_BASE = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0-dev.20260416-b7804b056c/dist/";
@@ -37,6 +46,26 @@ function extractAssistantText(output) {
   throw new Error("O modelo não produziu uma resposta reconhecível.");
 }
 
+
+async function hasUsableWebGPU() {
+  if (!navigator.gpu) return false;
+
+  try {
+    const adapter = await navigator.gpu.requestAdapter({
+      powerPreference: "high-performance",
+    });
+    return Boolean(adapter);
+  } catch (error) {
+    console.warn("[Modelo] WebGPU indisponível:", error);
+    return false;
+  }
+}
+
+function profileForMode(mode) {
+  return mode === "main"
+    ? TRANSFORMERS_FALLBACK_MODEL
+    : TRANSFORMERS_MODEL;
+}
 
 function isMemoryError(error) {
   return /bad_alloc|OrtRun|ERROR_CODE:\s*6|out of memory|memory access/i
@@ -216,12 +245,13 @@ function completeMarkerMatches() {
     const value = JSON.parse(
       localStorage.getItem(TRANSFORMERS_MODEL.markerKey) || "null",
     );
+    const profile = profileForMode(value?.mode);
 
     return (
       value?.complete === true &&
-      value?.modelId === TRANSFORMERS_MODEL.id &&
-      value?.dtype === TRANSFORMERS_MODEL.dtype &&
-      value?.revision === TRANSFORMERS_MODEL.revision
+      value?.modelId === profile.id &&
+      value?.dtype === profile.dtype &&
+      value?.revision === profile.revision
     );
   } catch {
     return false;
@@ -229,6 +259,8 @@ function completeMarkerMatches() {
 }
 
 function writeCompleteMarker(mode) {
+  const profile = profileForMode(mode);
+
   for (const key of [
     "maximus.engenharia.gemma3.q4.complete",
     "maximus.engenharia.gemma3.int8.complete",
@@ -241,16 +273,19 @@ function writeCompleteMarker(mode) {
     TRANSFORMERS_MODEL.markerKey,
     JSON.stringify({
       complete: true,
-      modelId: TRANSFORMERS_MODEL.id,
-      dtype: TRANSFORMERS_MODEL.dtype,
-      revision: TRANSFORMERS_MODEL.revision,
+      modelId: profile.id,
+      dtype: profile.dtype,
+      revision: profile.revision,
       mode,
       completedAt: new Date().toISOString(),
     }),
   );
 }
 
-function createProgressTracker(onProgress) {
+function createProgressTracker(
+  onProgress,
+  approximateBytes = approximateBytes,
+) {
   const files = new Map();
   let lastRatio = 0;
 
@@ -258,12 +293,12 @@ function createProgressTracker(onProgress) {
     if (!info) return;
 
     let received = 0;
-    let total = TRANSFORMERS_MODEL.approximateBytes;
+    let total = approximateBytes;
     let ratio = lastRatio;
 
     if (info.status === "progress_total") {
       received = Number(info.loaded) || 0;
-      total = Number(info.total) || TRANSFORMERS_MODEL.approximateBytes;
+      total = Number(info.total) || approximateBytes;
       const percent = Number(info.progress);
       ratio = Number.isFinite(percent)
         ? percent / 100
@@ -288,7 +323,7 @@ function createProgressTracker(onProgress) {
         .reduce((sum, item) => sum + item.total, 0);
 
       total = Math.max(
-        TRANSFORMERS_MODEL.approximateBytes,
+        approximateBytes,
         knownTotal,
       );
       ratio = total > 0 ? received / total : lastRatio;
@@ -342,7 +377,7 @@ async function loadMainModule(tracker) {
         env.allowRemoteModels = true;
         env.useBrowserCache = true;
         env.useWasmCache = true;
-        env.cacheKey = TRANSFORMERS_MODEL.cacheKey;
+        env.cacheKey = TRANSFORMERS_FALLBACK_MODEL.cacheKey;
         env.backends.onnx.wasm.numThreads = 1;
         env.backends.onnx.wasm.proxy = false;
         env.backends.onnx.wasm.wasmPaths = ORT_WASM_BASE;
@@ -367,11 +402,11 @@ async function ensureMainGenerator(tracker) {
     mainGeneratorPromise = loadMainModule(tracker)
       .then(({ pipeline }) => pipeline(
         "text-generation",
-        TRANSFORMERS_MODEL.id,
+        TRANSFORMERS_FALLBACK_MODEL.id,
         {
-          dtype: TRANSFORMERS_MODEL.dtype,
-          device: TRANSFORMERS_MODEL.device,
-          revision: TRANSFORMERS_MODEL.revision,
+          dtype: TRANSFORMERS_FALLBACK_MODEL.dtype,
+          device: TRANSFORMERS_FALLBACK_MODEL.device,
+          revision: TRANSFORMERS_FALLBACK_MODEL.revision,
           progress_callback: tracker,
         },
       ))
@@ -431,9 +466,21 @@ export async function prepareTransformersModel({
   await navigator.storage?.persist?.();
   await clearLegacyModelCaches();
 
-  const tracker = createProgressTracker(onProgress);
+  const webgpuAvailable = await hasUsableWebGPU();
 
-  if ("Worker" in globalThis) {
+  onProgress({
+    status: "webgpu-check",
+    file: webgpuAvailable
+      ? "WebGPU disponível"
+      : "WebGPU indisponível",
+    percent: 0,
+  });
+
+  if (webgpuAvailable && "Worker" in globalThis) {
+    const tracker = createProgressTracker(
+      onProgress,
+      TRANSFORMERS_MODEL.approximateBytes,
+    );
     const activeClient = getClient({ recreateFailed: true });
 
     try {
@@ -444,7 +491,7 @@ export async function prepareTransformersModel({
       return true;
     } catch (error) {
       console.warn(
-        "[Modelo] Worker indisponível; usando modo compatível:",
+        "[Modelo] Gemma/WebGPU indisponível; usando Qwen/WASM:",
         error,
       );
 
@@ -456,11 +503,21 @@ export async function prepareTransformersModel({
     }
   }
 
-  await ensureMainGenerator(tracker);
+  const fallbackTracker = createProgressTracker(
+    onProgress,
+    TRANSFORMERS_FALLBACK_MODEL.approximateBytes,
+  );
+
+  fallbackTracker({
+    status: "fallback-main",
+    file: "Qwen 0.5B Q8 / WASM",
+  });
+
+  await ensureMainGenerator(fallbackTracker);
 
   activeMode = "main";
   writeCompleteMarker(activeMode);
-  tracker({ status: "ready" });
+  fallbackTracker({ status: "ready" });
 
   return true;
 }
@@ -487,13 +544,8 @@ export async function generateTransformersText(
         client = null;
       }
 
-      if (isMemoryError(error)) {
-        activeMode = null;
-        throw createMemoryError(error);
-      }
-
       console.warn(
-        "[Modelo] Inferência no worker falhou; usando modo compatível:",
+        "[Modelo] Inferência Gemma/WebGPU falhou; usando Qwen/WASM:",
         error,
       );
 

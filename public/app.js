@@ -144,9 +144,10 @@ function* AppGenerator({ id }) {
         await prepareTransformersModel({
           onProgress: progress => {
             const labels = {
-              "worker-ready": "Inicializando o worker...",
+              "webgpu-check": "Verificando aceleração WebGPU...",
+              "worker-ready": "Inicializando Gemma/WebGPU...",
               "runtime-import": "Carregando Transformers.js...",
-              "fallback-main": "Worker indisponível; usando modo compatível...",
+              "fallback-main": "Usando Qwen 0.5B Q8 em CPU/WASM...",
               connection: "Conectando ao Hugging Face...",
               connected: "Conexão estabelecida.",
               initiate: "Preparando o arquivo...",
@@ -614,13 +615,13 @@ function* AppGenerator({ id }) {
                   </div>
                   <div>
                     <h2 class="text-lg font-bold text-slate-900">Inteligência local</h2>
-                    <p class="text-xs text-slate-500">Gemma 3 1B Q4 · CPU/WebAssembly</p>
+                    <p class="text-xs text-slate-500">Gemma 3 1B Q4 · WebGPU</p>
                   </div>
                 </div>
 
                 <p class="text-xs leading-relaxed text-slate-600 mb-5">
                   O modelo é baixado uma vez neste navegador, armazenado em cache
-                  persistente e executado localmente. Versão Q4 otimizada, com aproximadamente 900 MB.
+                  persistente e executado localmente. Gemma Q4 usa WebGPU; sem GPU compatível, o sistema usa Qwen 0.5B Q8 em CPU/WASM.
                 </p>
 
                 <div class="h-3 rounded-full bg-slate-200 overflow-hidden mb-2">

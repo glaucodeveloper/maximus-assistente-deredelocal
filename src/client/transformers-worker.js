@@ -1,7 +1,7 @@
 const MODEL_ID = "onnx-community/gemma-3-1b-it-ONNX";
 const ORT_WASM_BASE = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0-dev.20260416-b7804b056c/dist/";
 const MODEL_DTYPE = "q4";
-const MODEL_DEVICE = "wasm";
+const MODEL_DEVICE = "webgpu";
 const MODEL_REVISION =
   "a58439f40017d3b99c7d378ff525e54e0ba08ebf";
 const CACHE_KEY =
@@ -176,6 +176,13 @@ async function verifyRemoteModel(requestId) {
 
 async function ensureGenerator(requestId) {
   await clearLegacyCaches();
+
+  if (!self.navigator?.gpu) {
+    throw new Error(
+      "WebGPU não está disponível neste navegador. " +
+      "O runtime usará o modelo Qwen em WASM.",
+    );
+  }
 
   if (!generatorPromise) {
     await verifyRemoteModel(requestId);
