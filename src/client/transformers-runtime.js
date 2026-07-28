@@ -1,10 +1,10 @@
 export const TRANSFORMERS_MODEL = Object.freeze({
-  id: 'onnx-community/gemma-3-1b-it-ONNX',
-  dtype: 'uint8',
-  device: 'wasm',
-  revision: '9909734e10b2001ee7de4a1ca33c9cfbe66ad30b',
-  cacheKey: 'maximus-engenharia-gemma3-uint8-9909734-cache',
-  markerKey: 'maximus.engenharia.gemma3.uint8.9909734.complete',
+  id: "onnx-community/gemma-3-1b-it-ONNX",
+  dtype: "uint8",
+  device: "wasm",
+  revision: "9909734e10b2001ee7de4a1ca33c9cfbe66ad30b",
+  cacheKey: "maximus-engenharia-gemma3-uint8-9909734-v2-cache",
+  markerKey: "maximus.engenharia.gemma3.uint8.9909734.v2.complete",
   approximateBytes: 1_050_000_000,
 });
 
@@ -12,28 +12,33 @@ let client = null;
 
 class WorkerClient {
   constructor() {
-    this.worker = new Worker(new URL('./transformers-worker.js', import.meta.url), {
-      type: 'module',
-    });
+    this.failed = false;
     this.sequence = 0;
     this.pending = new Map();
 
-    this.worker.addEventListener('message', event => {
-      const {requestId, type, payload} = event.data ?? {};
+    this.worker = new Worker(
+      new URL("./transformers-worker.js", import.meta.url),
+      { type: "module", name: "maximus-engenharia-gemma3" },
+    );
+
+    this.worker.addEventListener("message", event => {
+      const { requestId, type, payload } = event.data ?? {};
       const request = this.pending.get(requestId);
       if (!request) return;
 
-      if (type === 'progress') {
+      if (type === "progress") {
         request.onProgress?.(payload);
         return;
       }
 
-      if (request.timer) clearTimeout(request.timer);
       this.pending.delete(requestId);
 
-      if (type === 'error') {
-        const error = new Error(payload?.message || 'Não foi possível iniciar a análise.');
-        error.name = payload?.name || 'Error';
+      if (type === "error") {
+        const error = new Error(
+          payload?.message ||
+          "O worker da inteligência local informou uma falha.",
+        );
+        error.name = payload?.name || "Error";
         error.stack = payload?.stack || error.stack;
         request.reject(error);
         return;
@@ -42,94 +47,138 @@ class WorkerClient {
       request.resolve(payload);
     });
 
-    this.worker.addEventListener('error', event => {
-      const error = new Error(event.message || 'A análise foi interrompida.');
-      for (const request of this.pending.values()) {
-        if (request.timer) clearTimeout(request.timer);
-        request.reject(error);
-      }
-      this.pending.clear();
+    this.worker.addEventListener("messageerror", event => {
+      this.failAll(
+        new Error(
+          `O navegador não conseguiu decodificar uma mensagem do worker: ${
+            event?.data ? String(event.data) : "mensagem inválida"
+          }`,
+        ),
+      );
+    });
+
+    this.worker.addEventListener("error", event => {
+      event.preventDefault?.();
+
+      const location = [
+        event.filename || "",
+        event.lineno ? `linha ${event.lineno}` : "",
+        event.colno ? `coluna ${event.colno}` : "",
+      ].filter(Boolean).join(", ");
+
+      const details = event.message || "erro sem mensagem";
+      this.failAll(
+        new Error(
+          `O worker do Gemma foi encerrado: ${details}` +
+          `${location ? ` (${location})` : ""}.`,
+        ),
+      );
     });
   }
 
-  request(type, payload = null, onProgress = null, timeoutMs = 0) {
-    const requestId = `gemma3-${Date.now()}-${++this.sequence}`;
+  failAll(error) {
+    this.failed = true;
+
+    for (const request of this.pending.values()) {
+      request.reject(error);
+    }
+    this.pending.clear();
+
+    try {
+      this.worker.terminate();
+    } catch {
+      // Worker já encerrado.
+    }
+  }
+
+  request(type, payload = null, onProgress = null) {
+    if (this.failed) {
+      return Promise.reject(
+        new Error("O worker anterior falhou e precisa ser recriado."),
+      );
+    }
+
+    const requestId =
+      `engenharia-gemma3-${Date.now()}-${++this.sequence}`;
 
     return new Promise((resolve, reject) => {
-      const request = {resolve, reject, onProgress, timer: null};
-
-      if (timeoutMs > 0) {
-        request.timer = setTimeout(() => {
-          if (!this.pending.has(requestId)) return;
-          this.pending.delete(requestId);
-          reject(new Error(
-            `A operação ${type} não respondeu em ${Math.round(timeoutMs / 1000)} segundos.`
-          ));
-        }, timeoutMs);
-      }
-
-      this.pending.set(requestId, request);
-      this.worker.postMessage({requestId, type, payload});
+      this.pending.set(requestId, { resolve, reject, onProgress });
+      this.worker.postMessage({ requestId, type, payload });
     });
   }
 
   load(onProgress) {
-    return this.request('load', null, onProgress);
-  }
-
-  isCached() {
-    return this.request('cache-status', null, null, 8000)
-      .then(result => Boolean(result?.cached))
-      .catch(error => {
-        console.warn('[Modelo] Consulta de cache ignorada:', error.message);
-        return false;
-      });
-  }
-
-  clearCache() {
-    return this.request('clear-cache');
+    return this.request("load", null, onProgress);
   }
 
   generate(messages, maxNewTokens) {
-    return this.request('generate', {messages, maxNewTokens});
+    return this.request("generate", { messages, maxNewTokens });
+  }
+
+  clearCache() {
+    return this.request("clear-cache");
   }
 
   async dispose() {
+    if (this.failed) return;
+
     try {
-      await this.request('dispose');
+      await this.request("dispose");
     } finally {
       this.worker.terminate();
+      this.failed = true;
     }
   }
 }
 
-function getClient() {
-  if (!client) client = new WorkerClient();
+function getClient({ recreateFailed = true } = {}) {
+  if (client?.failed && recreateFailed) {
+    client = null;
+  }
+
+  if (!client) {
+    client = new WorkerClient();
+  }
+
   return client;
 }
 
 function completeMarkerMatches() {
   try {
-    const value = JSON.parse(localStorage.getItem(TRANSFORMERS_MODEL.markerKey) || 'null');
-    return value?.complete === true &&
+    const value = JSON.parse(
+      localStorage.getItem(TRANSFORMERS_MODEL.markerKey) || "null",
+    );
+
+    return (
+      value?.complete === true &&
       value?.modelId === TRANSFORMERS_MODEL.id &&
       value?.dtype === TRANSFORMERS_MODEL.dtype &&
-      value?.revision === TRANSFORMERS_MODEL.revision;
+      value?.revision === TRANSFORMERS_MODEL.revision
+    );
   } catch {
     return false;
   }
 }
 
 function writeCompleteMarker() {
-  localStorage.removeItem('maximus.engenharia.gemma3.q4.complete');
-  localStorage.removeItem('maximus.engenharia.gemma3.int8.complete');
-  localStorage.setItem(TRANSFORMERS_MODEL.markerKey, JSON.stringify({
-    complete: true,
-    modelId: TRANSFORMERS_MODEL.id,
-    dtype: TRANSFORMERS_MODEL.dtype,
-    revision: TRANSFORMERS_MODEL.revision,
-    completedAt: new Date().toISOString(),
-  }));
+  for (const key of [
+    "maximus.engenharia.gemma3.q4.complete",
+    "maximus.engenharia.gemma3.int8.complete",
+    "maximus.engenharia.gemma3.uint8.9909734.complete",
+  ]) {
+    localStorage.removeItem(key);
+  }
+
+  localStorage.setItem(
+    TRANSFORMERS_MODEL.markerKey,
+    JSON.stringify({
+      complete: true,
+      modelId: TRANSFORMERS_MODEL.id,
+      dtype: TRANSFORMERS_MODEL.dtype,
+      revision: TRANSFORMERS_MODEL.revision,
+      completedAt: new Date().toISOString(),
+    }),
+  );
 }
 
 function createProgressTracker(onProgress) {
@@ -143,42 +192,57 @@ function createProgressTracker(onProgress) {
     let total = TRANSFORMERS_MODEL.approximateBytes;
     let ratio = lastRatio;
 
-    if (info.status === 'progress_total') {
+    if (info.status === "progress_total") {
       received = Number(info.loaded) || 0;
       total = Number(info.total) || TRANSFORMERS_MODEL.approximateBytes;
       const percent = Number(info.progress);
-      ratio = Number.isFinite(percent) ? percent / 100 : received / total;
-    } else if (info.status === 'progress' || info.status === 'done') {
-      const file = String(info.file || info.name || 'arquivo');
-      const known = files.get(file) || {loaded: 0, total: 0};
+      ratio = Number.isFinite(percent)
+        ? percent / 100
+        : received / total;
+    } else if (info.status === "progress" || info.status === "done") {
+      const file = String(info.file || info.name || "arquivo");
+      const known = files.get(file) || { loaded: 0, total: 0 };
       const fileTotal = Number(info.total) || known.total || 0;
-      const fileLoaded = info.status === 'done'
+      const fileLoaded = info.status === "done"
         ? fileTotal
         : Number(info.loaded) || known.loaded || 0;
 
-      files.set(file, {loaded: fileLoaded, total: fileTotal});
-      received = [...files.values()].reduce((sum, item) => sum + item.loaded, 0);
-      const knownTotal = [...files.values()].reduce((sum, item) => sum + item.total, 0);
-      total = Math.max(TRANSFORMERS_MODEL.approximateBytes, knownTotal);
-      ratio = received / total;
-    } else if (info.status === 'ready') {
+      files.set(file, {
+        loaded: fileLoaded,
+        total: fileTotal,
+      });
+
+      received = [...files.values()]
+        .reduce((sum, item) => sum + item.loaded, 0);
+
+      const knownTotal = [...files.values()]
+        .reduce((sum, item) => sum + item.total, 0);
+
+      total = Math.max(
+        TRANSFORMERS_MODEL.approximateBytes,
+        knownTotal,
+      );
+      ratio = total > 0 ? received / total : lastRatio;
+    } else if (info.status === "ready") {
       received = TRANSFORMERS_MODEL.approximateBytes;
       total = TRANSFORMERS_MODEL.approximateBytes;
       ratio = 1;
     } else if (
-      info.status === 'connection' ||
-      info.status === 'connected' ||
-      info.status === 'initiate' ||
-      info.status === 'download'
+      info.status === "worker-ready" ||
+      info.status === "connection" ||
+      info.status === "connected" ||
+      info.status === "initiate" ||
+      info.status === "download"
     ) {
-      received = 0;
-      total = TRANSFORMERS_MODEL.approximateBytes;
       ratio = lastRatio;
     } else {
       return;
     }
 
-    ratio = Math.max(lastRatio, Math.min(1, Math.max(0, ratio || 0)));
+    ratio = Math.max(
+      lastRatio,
+      Math.min(1, Math.max(0, ratio || 0)),
+    );
     lastRatio = ratio;
 
     onProgress({
@@ -186,66 +250,99 @@ function createProgressTracker(onProgress) {
       total,
       ratio,
       percent: Math.round(ratio * 100),
-      status: info.status || 'progress',
-      file: String(info.file || info.name || ''),
+      status: info.status || "progress",
+      file: String(info.file || info.name || ""),
     });
   };
 }
 
+/*
+ * O marcador é apenas um atalho de interface. A biblioteca continua
+ * responsável por validar e reutilizar os arquivos do Cache API durante
+ * pipeline(). Não fazemos consulta prévia ao registro de modelos porque essa
+ * operação estava encerrando o worker em alguns navegadores.
+ */
 export async function hasCompleteMarker() {
-  const cached = await getClient().isCached().catch(() => false);
-  if (!cached) {
-    localStorage.removeItem(TRANSFORMERS_MODEL.markerKey);
-    return false;
-  }
-
-  if (!completeMarkerMatches()) writeCompleteMarker();
-  return true;
+  return completeMarkerMatches();
 }
 
-export async function prepareTransformersModel({onProgress = () => {}} = {}) {
-  if (!('Worker' in globalThis)) {
-    throw new Error('Este navegador não oferece Web Worker.');
+export async function prepareTransformersModel({
+  onProgress = () => {},
+} = {}) {
+  if (!globalThis.isSecureContext) {
+    throw new Error(
+      "A inteligência local exige HTTPS ou localhost. " +
+      "Esta página não está em um contexto seguro.",
+    );
   }
 
-  if (!('caches' in globalThis)) {
+  if (!("Worker" in globalThis)) {
+    throw new Error("Este navegador não oferece Web Worker.");
+  }
+
+  if (!("caches" in globalThis)) {
     throw new Error(
-      'O Cache API não está disponível. Abra a aplicação por HTTPS ou por localhost.'
+      "O Cache API não está disponível neste endereço.",
     );
   }
 
   await navigator.storage?.persist?.();
 
   const tracker = createProgressTracker(onProgress);
-  tracker({status: 'progress_total', loaded: 0, total: TRANSFORMERS_MODEL.approximateBytes, progress: 0});
-  await getClient().load(tracker);
+  tracker({
+    status: "worker-ready",
+    file: "Inicializando worker",
+  });
 
-  const cached = await getClient().isCached();
-  if (!cached) {
-    localStorage.removeItem(TRANSFORMERS_MODEL.markerKey);
-    throw new Error('O download da inteligência local não foi concluído.');
+  const activeClient = getClient({ recreateFailed: true });
+
+  try {
+    await activeClient.load(tracker);
+  } catch (error) {
+    if (client === activeClient) {
+      client = null;
+    }
+    throw error;
   }
 
   writeCompleteMarker();
-  tracker({status: 'ready'});
+  tracker({ status: "ready" });
   return true;
 }
 
-export async function generateTransformersText(messages, {maxNewTokens = 256} = {}) {
-  if (!(await hasCompleteMarker())) await prepareTransformersModel();
-  return getClient().generate(messages, Math.max(64, Math.min(256, maxNewTokens)));
-}
+export async function generateTransformersText(
+  messages,
+  { maxNewTokens = 256 } = {},
+) {
+  if (!(await hasCompleteMarker())) {
+    await prepareTransformersModel();
+  }
 
-export async function disposeTransformersRuntime() {
-  if (!client) return;
-  await client.dispose().catch(() => {});
-  client = null;
+  const activeClient = getClient({ recreateFailed: true });
+
+  try {
+    return await activeClient.generate(
+      messages,
+      Math.max(64, Math.min(384, maxNewTokens)),
+    );
+  } catch (error) {
+    if (client === activeClient) {
+      client = null;
+    }
+    throw error;
+  }
 }
 
 export async function deleteTransformersModel() {
-  const worker = getClient();
-  await worker.clearCache().catch(() => {});
-  localStorage.removeItem(TRANSFORMERS_MODEL.markerKey);
-  await worker.dispose().catch(() => {});
-  client = null;
+  const activeClient = getClient({ recreateFailed: true });
+
+  try {
+    await activeClient.clearCache();
+  } finally {
+    localStorage.removeItem(TRANSFORMERS_MODEL.markerKey);
+    await activeClient.dispose().catch(() => {});
+    if (client === activeClient) {
+      client = null;
+    }
+  }
 }

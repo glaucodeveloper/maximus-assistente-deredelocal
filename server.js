@@ -61,10 +61,10 @@ app.use((req, res, next) => {
     "Content-Security-Policy",
     [
       "default-src 'self'",
-      "script-src 'self' 'unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com",
+      "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data:",
-      "connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.xethub.hf.co",
+      "connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.xethub.hf.co https://unpkg.com",
       "worker-src 'self' blob:",
       "font-src 'self' data:",
       "frame-ancestors 'none'",
@@ -80,6 +80,18 @@ app.use(express.static("public", {
   etag: true,
   maxAge: process.env.NODE_ENV === "production" ? "1h" : 0,
   index: "index.html",
+  setHeaders(res, filePath) {
+    if (
+      filePath.endsWith("index.html") ||
+      filePath.endsWith("/build/app.js") ||
+      filePath.endsWith("\\build\\app.js")
+    ) {
+      res.setHeader(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate",
+      );
+    }
+  },
 }));
 
 function normalizeIp(value) {

@@ -144,6 +144,7 @@ function* AppGenerator({ id }) {
         await prepareTransformersModel({
           onProgress: progress => {
             const labels = {
+              "worker-ready": "Inicializando o worker...",
               connection: "Conectando ao Hugging Face...",
               connected: "Conexão estabelecida.",
               initiate: "Preparando o arquivo...",
