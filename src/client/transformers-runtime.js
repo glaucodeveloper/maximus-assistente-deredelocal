@@ -8,6 +8,8 @@ export const TRANSFORMERS_MODEL = Object.freeze({
   approximateBytes: 1_050_000_000,
 });
 
+const ORT_WASM_BASE = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0-dev.20260416-b7804b056c/dist/";
+
 let client = null;
 let activeMode = null;
 let mainModulePromise = null;
@@ -303,6 +305,7 @@ async function loadMainModule(tracker) {
         env.cacheKey = TRANSFORMERS_MODEL.cacheKey;
         env.backends.onnx.wasm.numThreads = 1;
         env.backends.onnx.wasm.proxy = false;
+        env.backends.onnx.wasm.wasmPaths = ORT_WASM_BASE;
 
         return module;
       })

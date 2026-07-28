@@ -1,4 +1,5 @@
 const MODEL_ID = "onnx-community/gemma-3-1b-it-ONNX";
+const ORT_WASM_BASE = "https://cdn.jsdelivr.net/npm/onnxruntime-web@1.26.0-dev.20260416-b7804b056c/dist/";
 const MODEL_DTYPE = "uint8";
 const MODEL_DEVICE = "wasm";
 const MODEL_REVISION =
@@ -37,6 +38,7 @@ async function loadTransformers(requestId) {
         env.cacheKey = CACHE_KEY;
         env.backends.onnx.wasm.numThreads = 1;
         env.backends.onnx.wasm.proxy = false;
+        env.backends.onnx.wasm.wasmPaths = ORT_WASM_BASE;
 
         return module;
       })
