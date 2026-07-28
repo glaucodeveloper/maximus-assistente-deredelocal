@@ -201,6 +201,42 @@ function checkPairingRate(ip) {
   return state.count <= 10;
 }
 
+
+/*
+ * Compatibilidade de transição: a interface 3.x não deve receber
+ * index.html ao consultar /api/health. Este processo Node é legado e não
+ * executa o Gemma 4; ele apenas informa que o servidor Nim deve assumir
+ * a porta da aplicação.
+ */
+app.get("/api/health", async (_req, res) => {
+  let liteRtReady = false;
+
+  try {
+    const response = await fetch(
+      "http://127.0.0.1:9379/v1/models",
+      {
+        signal: AbortSignal.timeout(2500),
+      },
+    );
+
+    liteRtReady = response.ok;
+  } catch {
+    liteRtReady = false;
+  }
+
+  res.status(503).json({
+    ok: false,
+    runtime: "legacy-node",
+    storage: "legacy-local",
+    liteRtReady,
+    model: "gemma4-e2b",
+    error:
+      "A porta 3001 ainda está sendo atendida pelo serviço Node legado. " +
+      "Pare engenharia.service e inicie EngenhariaNimServer. No Windows, " +
+      "execute Configure-Engenharia.cmd após instalar o MSI.",
+  });
+});
+
 app.get("/api/device/status", (req, res) => {
   const identity = requestIdentity(req);
   res.json({

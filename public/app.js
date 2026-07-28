@@ -14,6 +14,34 @@ async function apiFetch(input, init = {}) {
   return response;
 }
 
+async function readJsonResponse(response, endpoint) {
+  const contentType =
+    response.headers.get("content-type") || "";
+  const raw = await response.text();
+
+  if (!contentType.toLowerCase().includes("application/json")) {
+    const returnedHtml =
+      raw.trimStart().startsWith("<");
+
+    throw new Error(
+      returnedHtml
+        ? `A rota ${endpoint} foi atendida pelo servidor Node antigo, ` +
+          "que devolveu a página HTML no lugar de JSON. " +
+          "Inicie o EngenhariaNimServer."
+        : `A rota ${endpoint} devolveu conteúdo incompatível: ` +
+          `${contentType || "tipo desconhecido"}.`,
+    );
+  }
+
+  try {
+    return raw ? JSON.parse(raw) : {};
+  } catch (error) {
+    throw new Error(
+      `A rota ${endpoint} devolveu JSON inválido: ${error.message}`,
+    );
+  }
+}
+
 // CENTRAL DE ENGENHARIA — FRONTEND COM ARQUITETURA STATIC NEXT (SEM HELPER / BINDER)
 
 function* AppGenerator({ id }) {
@@ -51,7 +79,7 @@ function* AppGenerator({ id }) {
     modelPreparing: false,
     modelProgress: 0,
     modelError: "",
-    modelStatus: "Verificando o cache local..."
+    modelStatus: "Verificando EngenhariaNimServer e LiteRT-LM..."
   };
 
   // --- MÉTODOS ASSÍNCRONOS (PADRÃO NÍVEL 7 - DISPARAM PATCH NO RETORNO) ---
@@ -133,10 +161,17 @@ function* AppGenerator({ id }) {
 
     try {
       const res = await apiFetch("/api/health");
-      const health = await res.json();
+      const health = await readJsonResponse(
+        res,
+        "/api/health"
+      );
 
-      if (!res.ok) {
-        throw new Error(health.error || "Servidor Nim indisponível.");
+      if (!res.ok || health.runtime !== "nim") {
+        throw new Error(
+          health.error ||
+          "A interface 3.0 está aberta, mas a porta ainda não é " +
+          "atendida pelo EngenhariaNimServer."
+        );
       }
 
       if (!health.liteRtReady) {
@@ -577,14 +612,14 @@ function* AppGenerator({ id }) {
 
             <!-- PREPARAÇÃO DA INTELIGÊNCIA LOCAL -->
             <div class="fixed inset-0 bg-slate-950/85 backdrop-blur-sm z-40 flex items-center justify-center p-4 ${showModelSetup ? '' : 'hidden'}">
-              <div class="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-8 border border-slate-100">
+              <div class="bg-white rounded-2xl shadow-2xl w-full max-w-lg mx-auto p-8 border border-slate-100">
                 <div class="flex items-center gap-3 mb-5">
                   <div class="w-12 h-12 rounded-xl bg-indigo-600 text-white flex items-center justify-center">
                     <i data-lucide="brain-circuit" class="w-6 h-6"></i>
                   </div>
                   <div>
                     <h2 class="text-lg font-bold text-slate-900">Inteligência local</h2>
-                    <p class="text-xs text-slate-500">Gemma 3 1B Q4 · WebGPU</p>
+                    <p class="text-xs text-slate-500">Gemma 4 E2B · LiteRT-LM no servidor</p>
                   </div>
                 </div>
 
@@ -607,7 +642,7 @@ function* AppGenerator({ id }) {
                     ${s.modelError}
                   </div>
                   <button onclick="document.getElementById('${this.id}').component.prepareLocalModel()" class="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-semibold py-3 rounded-xl text-xs">
-                    Tentar novamente
+                    Verificar novamente
                   </button>
                 ` : ""}
               </div>
