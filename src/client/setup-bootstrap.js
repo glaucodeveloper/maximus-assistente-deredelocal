@@ -78,10 +78,11 @@ function createSetupOverlay(initialStatus) {
       <div class="p-7">
         <div class="rounded-2xl bg-blue-50 border border-blue-100 p-4 mb-6">
           <p class="text-xs leading-relaxed text-blue-950">
-            O PAT do GitHub é enviado somente ao servidor Nim local em
+            O PAT é enviado somente ao servidor Nim local em
             <strong>127.0.0.1</strong> e não é salvo no navegador.
-            O token do Hugging Face foi configurado pelo script local.
-            O repositório privado é fixo: <strong>engenharia-data</strong>.
+            O token do Hugging Face foi configurado pelo patching.
+            O destino é definido no próprio projeto:
+            <strong>glaucodeveloper/maximus-engenharia-inteligente-data</strong>.
           </p>
         </div>
 
@@ -160,7 +161,7 @@ function createSetupOverlay(initialStatus) {
               type="button"
               class="w-full rounded-xl bg-slate-800 hover:bg-slate-900 text-white font-bold text-sm px-5 py-3.5 transition"
             >
-              Informar credenciais novamente
+              Informar PAT novamente
             </button>
           </div>
         </div>

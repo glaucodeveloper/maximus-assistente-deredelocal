@@ -29,6 +29,7 @@ type SetupConfig = object
   modelRepository: string
   modelFile: string
   modelAlias: string
+  dataRepositoryConfig: string
 
 var setupProcess: Process = nil
 
@@ -71,6 +72,8 @@ proc loadConfig(path: string): SetupConfig =
   result.modelRepository = node{"modelRepository"}.getStr
   result.modelFile = node{"modelFile"}.getStr
   result.modelAlias = node{"modelAlias"}.getStr("gemma4-e2b")
+  result.dataRepositoryConfig =
+    node{"dataRepositoryConfig"}.getStr
 
 proc defaultState(c: SetupConfig): JsonNode =
   %*{
@@ -153,7 +156,8 @@ proc childEnvironment(
     result[key] = value
 
   result["GITHUB_PAT"] = githubPat
-  result["REPOSITORY_NAME"] = c.repositoryName
+  result["DATA_REPOSITORY_CONFIG"] =
+    c.dataRepositoryConfig
   result["MACHINE_ID"] = c.machineId
   result["MACHINE_MAC"] = c.machineMac
   result["PROJECT_DIR"] = c.projectDir
@@ -194,10 +198,7 @@ proc startConfiguration(
   setupProcess = startProcess(
     c.setupHelper,
     workingDir = c.projectDir,
-    env = childEnvironment(
-      c,
-      githubPat
-    ),
+    env = childEnvironment(c, githubPat),
     options = {poUsePath, poParentStreams}
   )
 
@@ -281,10 +282,7 @@ proc main() =
           })
           return
 
-        startConfiguration(
-          c,
-          githubPat
-        )
+        startConfiguration(c, githubPat)
 
         await respondJson(req, Http202, readState(c))
         return

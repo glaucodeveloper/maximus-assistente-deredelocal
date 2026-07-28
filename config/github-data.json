@@ -1,0 +1,10 @@
+{
+  "owner": "glaucodeveloper",
+  "repository": "maximus-engenharia-inteligente-data",
+  "branch": "main",
+  "paths": {
+    "documents": "documents",
+    "tasks": "state/tasks.json",
+    "machines": "machines"
+  }
+}

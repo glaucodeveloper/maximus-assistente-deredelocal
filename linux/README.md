@@ -1,36 +1,37 @@
-# Instalação Linux
+# Configuração GitHub da aplicação
 
-## Credenciais
-
-O token do Hugging Face é configurado no console:
-
-```bash
-./linux/configurar-huggingface-token.sh
-```
-
-Ele é criptografado com `systemd-creds` e disponibilizado somente ao
-`engenharia-bootstrap.service`. O token não é enviado ao navegador e não
-é persistido no repositório.
-
-Depois, abra:
+A configuração do repositório de dados está versionada no próprio
+projeto Engenharia:
 
 ```text
-http://127.0.0.1:3001
+config/github-data.json
 ```
 
-A interface solicita somente o Personal Access Token do GitHub.
-
-O repositório privado é fixado internamente como:
+Destino:
 
 ```text
-engenharia-data
+glaucodeveloper/maximus-engenharia-inteligente-data
 ```
 
-O PAT do GitHub também é protegido com `systemd-creds` durante a
-configuração e permanece vinculado ao identificador SHA-256 do MAC.
+O servidor não cria outro repositório e a interface não permite alterar
+esse destino.
 
-## Serviços
+## Fine-grained PAT
 
-- `engenharia-bootstrap.service`: configuração inicial;
-- `engenharia-litert.service`: Gemma 4 E2B via LiteRT-LM;
-- `engenharia-nim.service`: aplicação definitiva.
+Ao criar o token no GitHub, selecione somente:
+
+```text
+glaucodeveloper/maximus-engenharia-inteligente-data
+```
+
+Permissões:
+
+- Contents: Read and write;
+- Metadata: Read-only.
+
+A interface solicita somente esse PAT.
+
+## Hugging Face
+
+O token `hf_...` é configurado no script de patching e disponibilizado
+ao bootstrap por `systemd-creds`.

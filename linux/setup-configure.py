@@ -37,7 +37,21 @@ model_file = required("MODEL_FILE")
 model_alias = required("MODEL_ALIAS")
 machine_id = required("MACHINE_ID")
 machine_mac = required("MACHINE_MAC")
-repository_name = required("REPOSITORY_NAME")
+data_repository_config_path = pathlib.Path(
+    required("DATA_REPOSITORY_CONFIG")
+)
+data_repository_config = json.loads(
+    data_repository_config_path.read_text(encoding="utf-8")
+)
+repository_owner = str(
+    data_repository_config["owner"]
+).strip()
+repository_name = str(
+    data_repository_config["repository"]
+).strip()
+repository_branch = str(
+    data_repository_config.get("branch", "main")
+).strip()
 github_pat = required("GITHUB_PAT")
 
 
@@ -61,14 +75,8 @@ def load_hugging_face_token() -> str:
             if value:
                 return value
 
-    fallback = os.environ.get("HF_TOKEN", "").strip()
-
-    if fallback:
-        return fallback
-
     raise RuntimeError(
-        "O token do Hugging Face não foi configurado. "
-        "Execute novamente o script de patching."
+        "O token do Hugging Face não foi configurado pelo patching."
     )
 
 
@@ -182,7 +190,7 @@ def put_repo_file(
         "content": base64.b64encode(
             content.encode("utf-8")
         ).decode("ascii"),
-        "branch": "main",
+        "branch": repository_branch,
     }
 
     if status == 200:
@@ -293,8 +301,9 @@ try:
             f"{user.get('message', user)}"
         )
 
-    owner = user["login"]
-    display_name = user.get("name") or owner
+    authenticated_login = user["login"]
+    display_name = user.get("name") or authenticated_login
+    owner = repository_owner
     repository_url = (
         f"https://api.github.com/repos/"
         f"{owner}/{repository_name}"
@@ -303,7 +312,7 @@ try:
     write_state(
         "creating_repository",
         18,
-        f"Preparando {owner}/{repository_name}...",
+        f"Validando {owner}/{repository_name}...",
         repository=f"{owner}/{repository_name}",
     )
 
@@ -312,31 +321,10 @@ try:
         repository_url,
     )
 
-    if status == 404:
-        status, repository = github_request(
-            "POST",
-            "https://api.github.com/user/repos",
-            {
-                "name": repository_name,
-                "description":
-                    "Dados privados da aplicação Engenharia",
-                "private": True,
-                "auto_init": True,
-            },
-        )
-
-        if status != 201:
-            raise RuntimeError(
-                "Não foi possível criar o repositório: "
-                f"HTTP {status}: "
-                f"{repository.get('message', repository)}"
-            )
-
-        time.sleep(2)
-    elif status != 200:
+    if status != 200:
         raise RuntimeError(
-            "Não foi possível consultar o repositório: "
-            f"HTTP {status}: "
+            "O PAT não possui acesso ao repositório configurado: "
+            f"{owner}/{repository_name}. HTTP {status}: "
             f"{repository.get('message', repository)}"
         )
 
@@ -404,7 +392,7 @@ try:
         "secretPath": str(secret_path),
         "githubOwner": owner,
         "githubRepo": repository_name,
-        "githubBranch": "main",
+        "githubBranch": repository_branch,
         "macHash": machine_id,
         "litertBaseUrl": litert_url,
         "modelAlias": model_alias,
