@@ -146,6 +146,7 @@ function* AppGenerator({ id }) {
             const labels = {
               "worker-ready": "Inicializando o worker...",
               "runtime-import": "Carregando Transformers.js...",
+              "fallback-main": "Worker indisponível; usando modo compatível...",
               connection: "Conectando ao Hugging Face...",
               connected: "Conexão estabelecida.",
               initiate: "Preparando o arquivo...",

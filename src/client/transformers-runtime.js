@@ -9,6 +9,32 @@ export const TRANSFORMERS_MODEL = Object.freeze({
 });
 
 let client = null;
+let activeMode = null;
+let mainModulePromise = null;
+let mainGeneratorPromise = null;
+let mainGenerator = null;
+
+function extractAssistantText(output) {
+  const generated = output?.[0]?.generated_text;
+
+  if (Array.isArray(generated)) {
+    for (let index = generated.length - 1; index >= 0; index -= 1) {
+      const message = generated[index];
+
+      if (
+        (message?.role === "assistant" || message?.role === "model") &&
+        typeof message.content === "string"
+      ) {
+        return message.content.trim();
+      }
+    }
+  }
+
+  if (typeof generated === "string") return generated.trim();
+
+  throw new Error("O modelo não produziu uma resposta reconhecível.");
+}
+
 
 class WorkerClient {
   constructor() {
@@ -160,7 +186,7 @@ function completeMarkerMatches() {
   }
 }
 
-function writeCompleteMarker() {
+function writeCompleteMarker(mode) {
   for (const key of [
     "maximus.engenharia.gemma3.q4.complete",
     "maximus.engenharia.gemma3.int8.complete",
@@ -176,6 +202,7 @@ function writeCompleteMarker() {
       modelId: TRANSFORMERS_MODEL.id,
       dtype: TRANSFORMERS_MODEL.dtype,
       revision: TRANSFORMERS_MODEL.revision,
+      mode,
       completedAt: new Date().toISOString(),
     }),
   );
@@ -229,6 +256,8 @@ function createProgressTracker(onProgress) {
       ratio = 1;
     } else if (
       info.status === "worker-ready" ||
+      info.status === "runtime-import" ||
+      info.status === "fallback-main" ||
       info.status === "connection" ||
       info.status === "connected" ||
       info.status === "initiate" ||
@@ -256,6 +285,67 @@ function createProgressTracker(onProgress) {
   };
 }
 
+async function loadMainModule(tracker) {
+  if (!mainModulePromise) {
+    tracker({
+      status: "fallback-main",
+      file: "Modo compatível",
+    });
+
+    mainModulePromise = import("@huggingface/transformers")
+      .then(module => {
+        const { env } = module;
+
+        env.allowLocalModels = false;
+        env.allowRemoteModels = true;
+        env.useBrowserCache = true;
+        env.useWasmCache = true;
+        env.cacheKey = TRANSFORMERS_MODEL.cacheKey;
+        env.backends.onnx.wasm.numThreads = 1;
+        env.backends.onnx.wasm.proxy = false;
+
+        return module;
+      })
+      .catch(error => {
+        mainModulePromise = null;
+        throw new Error(
+          `Falha ao iniciar Transformers.js no modo compatível: ${
+            error?.message || String(error)
+          }`,
+        );
+      });
+  }
+
+  return mainModulePromise;
+}
+
+async function ensureMainGenerator(tracker) {
+  if (!mainGeneratorPromise) {
+    mainGeneratorPromise = loadMainModule(tracker)
+      .then(({ pipeline }) => pipeline(
+        "text-generation",
+        TRANSFORMERS_MODEL.id,
+        {
+          dtype: TRANSFORMERS_MODEL.dtype,
+          device: TRANSFORMERS_MODEL.device,
+          revision: TRANSFORMERS_MODEL.revision,
+          progress_callback: tracker,
+        },
+      ))
+      .then(value => {
+        mainGenerator = value;
+        return value;
+      })
+      .catch(error => {
+        mainGeneratorPromise = null;
+        mainGenerator = null;
+        throw error;
+      });
+  }
+
+  return mainGeneratorPromise;
+}
+
 /*
  * O marcador é apenas um atalho de interface. A biblioteca continua
  * responsável por validar e reutilizar os arquivos do Cache API durante
@@ -263,7 +353,20 @@ function createProgressTracker(onProgress) {
  * operação estava encerrando o worker em alguns navegadores.
  */
 export async function hasCompleteMarker() {
-  return completeMarkerMatches();
+  const matches = completeMarkerMatches();
+
+  if (matches && !activeMode) {
+    try {
+      const value = JSON.parse(
+        localStorage.getItem(TRANSFORMERS_MODEL.markerKey) || "null",
+      );
+      activeMode = value?.mode || "worker";
+    } catch {
+      activeMode = "worker";
+    }
+  }
+
+  return matches;
 }
 
 export async function prepareTransformersModel({
@@ -276,10 +379,6 @@ export async function prepareTransformersModel({
     );
   }
 
-  if (!("Worker" in globalThis)) {
-    throw new Error("Este navegador não oferece Web Worker.");
-  }
-
   if (!("caches" in globalThis)) {
     throw new Error(
       "O Cache API não está disponível neste endereço.",
@@ -289,24 +388,36 @@ export async function prepareTransformersModel({
   await navigator.storage?.persist?.();
 
   const tracker = createProgressTracker(onProgress);
-  tracker({
-    status: "worker-ready",
-    file: "Inicializando worker",
-  });
 
-  const activeClient = getClient({ recreateFailed: true });
+  if ("Worker" in globalThis) {
+    const activeClient = getClient({ recreateFailed: true });
 
-  try {
-    await activeClient.load(tracker);
-  } catch (error) {
-    if (client === activeClient) {
-      client = null;
+    try {
+      await activeClient.load(tracker);
+      activeMode = "worker";
+      writeCompleteMarker(activeMode);
+      tracker({ status: "ready" });
+      return true;
+    } catch (error) {
+      console.warn(
+        "[Modelo] Worker indisponível; usando modo compatível:",
+        error,
+      );
+
+      activeClient.failAll?.(error);
+
+      if (client === activeClient) {
+        client = null;
+      }
     }
-    throw error;
   }
 
-  writeCompleteMarker();
+  await ensureMainGenerator(tracker);
+
+  activeMode = "main";
+  writeCompleteMarker(activeMode);
   tracker({ status: "ready" });
+
   return true;
 }
 
@@ -318,31 +429,61 @@ export async function generateTransformersText(
     await prepareTransformersModel();
   }
 
-  const activeClient = getClient({ recreateFailed: true });
+  const maxTokens = Math.max(64, Math.min(384, maxNewTokens));
 
-  try {
-    return await activeClient.generate(
-      messages,
-      Math.max(64, Math.min(384, maxNewTokens)),
-    );
-  } catch (error) {
-    if (client === activeClient) {
-      client = null;
+  if (activeMode === "worker") {
+    const activeClient = getClient({ recreateFailed: true });
+
+    try {
+      return await activeClient.generate(messages, maxTokens);
+    } catch (error) {
+      console.warn(
+        "[Modelo] Inferência no worker falhou; usando modo compatível:",
+        error,
+      );
+
+      activeClient.failAll?.(error);
+
+      if (client === activeClient) {
+        client = null;
+      }
+
+      activeMode = "main";
     }
-    throw error;
   }
+
+  const tracker = () => {};
+  const pipe = await ensureMainGenerator(tracker);
+
+  const output = await pipe(messages, {
+    max_new_tokens: maxTokens,
+    do_sample: false,
+    repetition_penalty: 1.08,
+    return_full_text: true,
+  });
+
+  writeCompleteMarker("main");
+
+  return {
+    text: extractAssistantText(output),
+    mode: "main",
+  };
 }
 
 export async function deleteTransformersModel() {
-  const activeClient = getClient({ recreateFailed: true });
+  localStorage.removeItem(TRANSFORMERS_MODEL.markerKey);
 
-  try {
-    await activeClient.clearCache();
-  } finally {
-    localStorage.removeItem(TRANSFORMERS_MODEL.markerKey);
-    await activeClient.dispose().catch(() => {});
-    if (client === activeClient) {
-      client = null;
-    }
+  if (client) {
+    await client.dispose().catch(() => {});
+    client = null;
   }
+
+  if (mainGenerator?.dispose) {
+    await mainGenerator.dispose().catch(() => {});
+  }
+
+  mainGenerator = null;
+  mainGeneratorPromise = null;
+  mainModulePromise = null;
+  activeMode = null;
 }
