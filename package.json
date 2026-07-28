@@ -1,6 +1,6 @@
 {
   "name": "maximus-engenharia-local",
-  "version": "3.0.2",
+  "version": "3.1.0",
   "description": "Aplicação de Engenharia com servidor Nim, dados GitHub privados e Gemma 4 E2B via LiteRT-LM",
   "main": "server.js",
   "type": "module",

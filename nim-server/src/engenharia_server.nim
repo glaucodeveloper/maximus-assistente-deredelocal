@@ -24,6 +24,12 @@ proc normalizeMac(s: string): string =
     if ch in HexDigits: result.add(ch.toUpperAscii())
 
 proc primaryMac(): string =
+  let configured =
+    normalizeMac(getEnv("ENGINEERING_MACHINE_MAC"))
+
+  if configured.len == 12:
+    return configured
+
   when defined(windows):
     let outp = execProcess("getmac", args=["/fo","csv","/nh"],
       options={poUsePath,poStdErrToStdOut})
@@ -77,7 +83,19 @@ proc decryptPat(path, mac: string): string =
       args=["-NoProfile","-NonInteractive","-Command",cmd],
       options={poUsePath,poStdErrToStdOut}).strip
   else:
-    result = getEnv("ENGINEERING_GITHUB_PAT").strip
+    let credentialsDirectory =
+      getEnv("CREDENTIALS_DIRECTORY").strip
+
+    if credentialsDirectory.len > 0:
+      let credentialPath =
+        credentialsDirectory / "github-pat"
+
+      if fileExists(credentialPath):
+        result = readFile(credentialPath).strip
+
+    if result.len == 0:
+      result = getEnv("ENGINEERING_GITHUB_PAT").strip
+
   if result.len == 0:
     raise newException(IOError, "O PAT protegido não pôde ser recuperado.")
 
