@@ -1,8 +1,3 @@
-import {
-  env,
-  pipeline,
-} from "@huggingface/transformers";
-
 const MODEL_ID = "onnx-community/gemma-3-1b-it-ONNX";
 const MODEL_DTYPE = "uint8";
 const MODEL_DEVICE = "wasm";
@@ -22,14 +17,41 @@ const MODEL_CONFIG_URL =
   `https://huggingface.co/${MODEL_ID}/resolve/` +
   `${MODEL_REVISION}/config.json`;
 
-env.allowLocalModels = false;
-env.allowRemoteModels = true;
-env.useBrowserCache = true;
-env.useWasmCache = true;
-env.cacheKey = CACHE_KEY;
+let transformersPromise = null;
 
-env.backends.onnx.wasm.numThreads = 1;
-env.backends.onnx.wasm.proxy = false;
+async function loadTransformers(requestId) {
+  if (!transformersPromise) {
+    post(requestId, "progress", {
+      status: "runtime-import",
+      file: "Transformers.js",
+    });
+
+    transformersPromise = import("@huggingface/transformers")
+      .then(module => {
+        const { env } = module;
+
+        env.allowLocalModels = false;
+        env.allowRemoteModels = true;
+        env.useBrowserCache = true;
+        env.useWasmCache = true;
+        env.cacheKey = CACHE_KEY;
+        env.backends.onnx.wasm.numThreads = 1;
+        env.backends.onnx.wasm.proxy = false;
+
+        return module;
+      })
+      .catch(error => {
+        transformersPromise = null;
+        throw new Error(
+          `Falha ao importar Transformers.js no worker: ${
+            error?.message || String(error)
+          }`,
+        );
+      });
+  }
+
+  return transformersPromise;
+}
 
 let generatorPromise = null;
 let generator = null;
@@ -154,6 +176,7 @@ async function ensureGenerator(requestId) {
 
   if (!generatorPromise) {
     await verifyRemoteModel(requestId);
+    const { pipeline } = await loadTransformers(requestId);
 
     generatorPromise = pipeline(
       TASK,
@@ -230,6 +253,7 @@ self.addEventListener("message", async event => {
 
       generator = null;
       generatorPromise = null;
+      transformersPromise = null;
       post(requestId, "result", { disposed: true });
       return;
     }
