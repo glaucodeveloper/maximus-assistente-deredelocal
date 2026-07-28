@@ -62,6 +62,7 @@ app.use((req, res, next) => {
     [
       "default-src 'self'",
       "script-src 'self' 'unsafe-eval' 'wasm-unsafe-eval' https://cdn.tailwindcss.com https://unpkg.com",
+      "script-src-attr 'unsafe-inline'",
       "style-src 'self' 'unsafe-inline'",
       "img-src 'self' data:",
       "connect-src 'self' https://huggingface.co https://*.huggingface.co https://*.hf.co https://*.xethub.hf.co https://unpkg.com",

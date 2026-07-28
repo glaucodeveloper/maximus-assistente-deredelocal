@@ -1,6 +1,6 @@
 {
   "name": "maximus-engenharia-local",
-  "version": "2.2.2",
+  "version": "2.2.3",
   "description": "Central local de Engenharia com pareamento por dispositivo, OKF, FTPS e Gemma baixado no navegador",
   "main": "server.js",
   "type": "module",
