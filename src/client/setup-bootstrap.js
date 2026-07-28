@@ -78,10 +78,10 @@ function createSetupOverlay(initialStatus) {
       <div class="p-7">
         <div class="rounded-2xl bg-blue-50 border border-blue-100 p-4 mb-6">
           <p class="text-xs leading-relaxed text-blue-950">
-            As credenciais são enviadas somente ao servidor Nim local em
-            <strong>127.0.0.1</strong>. O PAT não é salvo no navegador.
-            No servidor, ele é criptografado com <strong>systemd-creds</strong>
-            e a instalação continua vinculada ao MAC desta máquina.
+            O PAT do GitHub é enviado somente ao servidor Nim local em
+            <strong>127.0.0.1</strong> e não é salvo no navegador.
+            O token do Hugging Face foi configurado pelo script local e fica
+            protegido com <strong>systemd-creds</strong>.
           </p>
         </div>
 
@@ -101,24 +101,6 @@ function createSetupOverlay(initialStatus) {
             >
             <p class="text-[10px] text-slate-500 mt-1">
               Permissões necessárias: leitura do perfil e acesso ao conteúdo do repositório privado.
-            </p>
-          </div>
-
-          <div>
-            <label for="setup-hf-token" class="block text-xs font-bold text-slate-700 mb-1.5">
-              Token do Hugging Face
-            </label>
-            <input
-              id="setup-hf-token"
-              name="huggingFaceToken"
-              type="password"
-              required
-              autocomplete="new-password"
-              placeholder="hf_..."
-              class="w-full px-4 py-3 rounded-xl border border-slate-200 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-            >
-            <p class="text-[10px] text-slate-500 mt-1">
-              Usado uma única vez para baixar o Gemma 4 E2B. Não será persistido.
             </p>
           </div>
 
@@ -319,8 +301,6 @@ function createSetupOverlay(initialStatus) {
     const payload = {
       githubPat:
         String(formData.get("githubPat") || "").trim(),
-      huggingFaceToken:
-        String(formData.get("huggingFaceToken") || "").trim(),
       repositoryName:
         String(formData.get("repositoryName") || "").trim(),
     };
@@ -352,10 +332,6 @@ function createSetupOverlay(initialStatus) {
       form.querySelector(
         '[name="githubPat"]',
       ).value = "";
-      form.querySelector(
-        '[name="huggingFaceToken"]',
-      ).value = "";
-
       form.classList.add("hidden");
       progressPanel.classList.remove("hidden");
       renderStatus(result);

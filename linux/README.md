@@ -1,26 +1,33 @@
-# Instalação Linux com configuração pela interface
+# Instalação Linux
 
-O instalador não solicita PAT nem token do Hugging Face no terminal.
+## Credenciais
 
-Ele inicia `engenharia-bootstrap.service` em:
+O token do Hugging Face é configurado no console:
+
+```bash
+./linux/configurar-huggingface-token.sh
+```
+
+Ele é criptografado com `systemd-creds` e disponibilizado somente ao
+`engenharia-bootstrap.service`. O token não é enviado ao navegador e não
+é persistido no repositório.
+
+Depois, abra:
 
 ```text
 http://127.0.0.1:3001
 ```
 
-A interface solicita:
+A interface solicita somente:
 
 - Personal Access Token do GitHub;
-- token do Hugging Face;
 - nome do repositório privado, com padrão `engenharia-data`.
 
-O PAT não é persistido no navegador. O servidor de configuração Nim o
-protege com `systemd-creds`, e o servidor definitivo valida o SHA-256 do
-MAC antes de recuperar a credencial.
+O PAT do GitHub também é protegido com `systemd-creds` durante a
+configuração e permanece vinculado ao identificador SHA-256 do MAC.
 
-Depois da importação do Gemma 4 E2B, a própria interface ativa:
+## Serviços
 
-- `engenharia-litert.service`;
-- `engenharia-nim.service`.
-
-O bootstrap é então desativado.
+- `engenharia-bootstrap.service`: configuração inicial;
+- `engenharia-litert.service`: Gemma 4 E2B via LiteRT-LM;
+- `engenharia-nim.service`: aplicação definitiva.

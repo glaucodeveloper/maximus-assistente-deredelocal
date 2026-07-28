@@ -39,7 +39,40 @@ machine_id = required("MACHINE_ID")
 machine_mac = required("MACHINE_MAC")
 repository_name = required("REPOSITORY_NAME")
 github_pat = required("GITHUB_PAT")
-hf_token = required("HF_TOKEN")
+
+
+def load_hugging_face_token() -> str:
+    credentials_directory = os.environ.get(
+        "CREDENTIALS_DIRECTORY",
+        "",
+    ).strip()
+
+    if credentials_directory:
+        credential_path = (
+            pathlib.Path(credentials_directory)
+            / "huggingface-token"
+        )
+
+        if credential_path.is_file():
+            value = credential_path.read_text(
+                encoding="utf-8",
+            ).strip()
+
+            if value:
+                return value
+
+    fallback = os.environ.get("HF_TOKEN", "").strip()
+
+    if fallback:
+        return fallback
+
+    raise RuntimeError(
+        "O token do Hugging Face não foi configurado. "
+        "Execute novamente o script de patching."
+    )
+
+
+hf_token = load_hugging_face_token()
 
 log_path.parent.mkdir(parents=True, exist_ok=True)
 log_stream = log_path.open("a", encoding="utf-8", buffering=1)

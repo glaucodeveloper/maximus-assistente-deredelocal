@@ -146,7 +146,6 @@ proc mimeType(path: string): string =
 proc childEnvironment(
   c: SetupConfig,
   githubPat: string,
-  huggingFaceToken: string,
   repositoryName: string
 ): StringTableRef =
   result = newStringTable(modeCaseSensitive)
@@ -155,7 +154,6 @@ proc childEnvironment(
     result[key] = value
 
   result["GITHUB_PAT"] = githubPat
-  result["HF_TOKEN"] = huggingFaceToken
   result["REPOSITORY_NAME"] = repositoryName
   result["MACHINE_ID"] = c.machineId
   result["MACHINE_MAC"] = c.machineMac
@@ -175,7 +173,6 @@ proc childEnvironment(
 proc startConfiguration(
   c: SetupConfig,
   githubPat: string,
-  huggingFaceToken: string,
   repositoryName: string
 ) =
   if setupProcess != nil and running(setupProcess):
@@ -202,7 +199,6 @@ proc startConfiguration(
     env = childEnvironment(
       c,
       githubPat,
-      huggingFaceToken,
       repositoryName
     ),
     options = {poUsePath, poParentStreams}
@@ -281,20 +277,12 @@ proc main() =
         let input = parseJson(req.body)
         let githubPat =
           input{"githubPat"}.getStr.strip
-        let huggingFaceToken =
-          input{"huggingFaceToken"}.getStr.strip
         let repositoryName =
           input{"repositoryName"}.getStr.strip
 
         if githubPat.len < 20:
           await respondJson(req, Http400, %*{
             "error": "Informe um PAT do GitHub válido."
-          })
-          return
-
-        if huggingFaceToken.len < 10:
-          await respondJson(req, Http400, %*{
-            "error": "Informe o token do Hugging Face."
           })
           return
 
@@ -318,7 +306,6 @@ proc main() =
         startConfiguration(
           c,
           githubPat,
-          huggingFaceToken,
           repositoryName
         )
 

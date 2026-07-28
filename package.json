@@ -1,7 +1,7 @@
 {
   "name": "maximus-engenharia-local",
-  "version": "3.2.0",
-  "description": "Engenharia com servidores Nim, configuração de credenciais pela interface, GitHub privado e Gemma 4 E2B",
+  "version": "3.2.1",
+  "description": "Engenharia com servidores Nim, PAT do GitHub pela interface, token do Hugging Face configurado localmente e Gemma 4 E2B",
   "main": "server.js",
   "type": "module",
   "scripts": {
